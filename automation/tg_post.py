@@ -305,10 +305,16 @@ def esc(s):
 
 
 def platform_line(a):
-    """支持平台：devices · iOS <min_os>+ (parts omitted when unknown)."""
+    """支持平台：devices · iOS <min_os>+ (parts omitted when unknown).
+    iPod touch is dropped: the product is discontinued and the extra
+    segment makes the line wrap mid-phrase on phones."""
     parts = []
     if a.get("devices"):
-        parts.append(a["devices"])
+        devs = " / ".join(
+            d.strip() for d in a["devices"].split("/") if d.strip() != "iPod touch"
+        )
+        if devs:
+            parts.append(devs)
     if a.get("min_os"):
         parts.append(f"iOS {a['min_os']}+")
     return " · ".join(parts)
