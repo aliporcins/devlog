@@ -25,6 +25,7 @@ Sources (all verified 2026-11-23):
 Every function returns a list of dicts with at least {'id': int, 'name': str,
 'source': str}. Network access uses only stdlib urllib; no API keys needed.
 """
+import datetime
 import json
 import re
 import time
@@ -215,6 +216,167 @@ def scrape_appraven(page_size=30):
             })
     print(f"  [appraven] {len(out)} apps")
     return out
+
+
+# ---------------- AppRaven cross-check ----------------
+# The AppRaven FREE version's daily free list is the website's own public
+# sale list (appraven.net, no login, no Pro): the same GetAppsOnSale
+# GraphQL the site itself calls. rareOnly=False = every app currently on
+# sale (not just the "rare" subset the discovery source uses), paginated
+# so the whole list is covered. lastActivity carries the most recent
+# price change, so a DROP to tier 0 within the last 48h marks a genuinely
+# new free deal; older/still-paid entries are not "today's" deals.
+# GetAppDetail (same public endpoint) returns the full price history
+# (activityList: every DROP/RISE with priceTierFrom/priceTierTo, plus the
+# RELEASE event with the launch price tier). That history is what the
+# cross-check verifies against: a real deal has a DROP to tier 0; an app
+# that launched free (RELEASE tier 0) and never had a price is a
+# perennially-free false positive. No Pro data, no unlock, no App API.
+APPRAVEN_SALE_GQL = (
+    "query GetAppsOnSale($rareOnly: Boolean!, $miniFilter: MiniFilterInput!, "
+    "$page: Int!, $pageSize: Int!) { appsOnSale(rareOnly: $rareOnly, "
+    "miniFilter: $miniFilter, page: $page, pageSize: $pageSize) { content { "
+    "app { id ITunesId title priceTier rating ratingCount hasInAppPurchases "
+    "lastActivity { timestamp "
+    "... on AppActivityPriceChange { priceChangeType: type priceTierFrom } "
+    "... on AppActivityAvailability { availabilityChangeType: type } "
+    "... on AppActivityUpdate { versionTo } } } "
+    "} hasNext } }")
+APPRAVEN_DETAIL_GQL = (
+    "query GetAppDetail($id: ID!) { app(id: $id) { id ITunesId title "
+    "priceTier activityList { id timestamp "
+    "... on AppActivityPriceChange { priceChangeType: type priceTierFrom "
+    "priceTierTo } "
+    "... on AppActivityAvailability { availabilityChangeType: type priceTier } "
+    "... on AppActivityUpdate { versionFrom versionTo } } } }")
+# How far back a price DROP counts as a "new" free deal (hours).
+APPRAVEN_RECENT_HOURS = 48
+# Bound the sale-list pagination so a huge catalog cannot stall the run.
+APPRAVEN_MAX_PAGES = 8
+
+
+def _appraven_gql(query, variables, op):
+    """One AppRaven GraphQL call (website's public endpoint, no auth).
+    Returns the parsed JSON dict, or None on any failure."""
+    body = json.dumps({"operationName": op, "variables": variables,
+                       "query": query}).encode()
+    raw = fetch("https://appraven.net/appraven/graphql",
+                headers={"Content-Type": "application/json"}, data=body)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def _parse_ts(ts):
+    """ISO-8601 timestamp (with Z or offset) -> aware datetime, or None."""
+    if not ts:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(
+            ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def appraven_sale_list(max_pages=APPRAVEN_MAX_PAGES):
+    """AppRaven free list (public GetAppsOnSale, rareOnly=False).
+
+    Returns (sale, recent_free):
+    - sale: {itunes_id: {"internal_id", "priceTier", "title", "last": {...}}}
+      for every app on the sale list (paginated, capped at max_pages).
+    - recent_free: [itunes_id, ...] that are currently free (tier 0) and
+      whose last activity is a price DROP within APPRAVEN_RECENT_HOURS —
+      i.e. genuinely new free deals, not apps that have been free for weeks.
+    On any failure returns the partial (sale, recent_free) collected so
+    far — a transient drop on a later page must not discard the pages
+    already fetched. When nothing could be fetched at all it returns
+    ({}, []), and the caller treats that as "no cross-check data" and
+    keeps everything (fail-open)."""
+    import datetime as _dt
+    sale, recent_free = {}, []
+    cutoff = (_dt.datetime.now(_dt.timezone.utc)
+              - _dt.timedelta(hours=APPRAVEN_RECENT_HOURS))
+    pages = 0
+    for page in range(max_pages):
+        d = _appraven_gql(APPRAVEN_SALE_GQL,
+                          {"rareOnly": False,
+                           "miniFilter": {"ratingCount": 10},
+                           "page": page, "pageSize": 30},
+                          "GetAppsOnSale")
+        if not d:
+            print("  [appraven-xcheck] sale list fetch failed "
+                  f"(page {page}); keeping the {len(sale)} app(s) fetched "
+                  f"so far")
+            break
+        node = (d.get("data") or {}).get("appsOnSale") or {}
+        content = node.get("content") or []
+        pages += 1
+        for item in content:
+            app = item.get("app") or {}
+            itid = app.get("ITunesId")
+            if not itid:
+                continue
+            itid = int(itid)
+            last = app.get("lastActivity") or {}
+            sale[itid] = {
+                "internal_id": app.get("id"),
+                "priceTier": app.get("priceTier"),
+                "title": app.get("title", ""),
+                "last": last,
+            }
+            if (app.get("priceTier") == 0
+                    and last.get("priceChangeType") == "DROP"):
+                ts = _parse_ts(last.get("timestamp"))
+                if ts and ts >= cutoff:
+                    recent_free.append(itid)
+        if not node.get("hasNext"):
+            break
+        time.sleep(0.5)
+    print(f"  [appraven-xcheck] sale list: {len(sale)} apps across "
+          f"{pages} page(s); recent-free (tier 0 + DROP < "
+          f"{APPRAVEN_RECENT_HOURS}h): {len(recent_free)}")
+    return sale, recent_free
+
+
+def appraven_price_verdict(internal_id):
+    """Price-history verdict for one app (by AppRaven internal id).
+
+    Returns one of:
+    - "confirmed": activityList has a DROP with priceTierTo == 0 and
+      priceTierFrom > 0 — the app really went from paid to free.
+    - "always_free": the app launched free (RELEASE availability with
+      priceTier 0) and the whole history has no DROP to tier 0 — it was
+      never paid, so listing it as "paid turned free" is a false positive.
+    - "unknown": AppRaven has no record of the app, the call failed, or
+      the history is inconclusive (e.g. truncated before the RELEASE).
+      Callers keep the app on "unknown" (fail-open)."""
+    if not internal_id:
+        return "unknown"
+    d = _appraven_gql(APPRAVEN_DETAIL_GQL, {"id": str(internal_id)},
+                      "GetAppDetail")
+    if not d:
+        return "unknown"
+    app = (d.get("data") or {}).get("app")
+    if not app:
+        return "unknown"
+    acts = app.get("activityList") or []
+    has_drop_to_free = False
+    released_free = False
+    for a in acts:
+        if a.get("priceChangeType") == "DROP" and a.get("priceTierTo") == 0 \
+                and (a.get("priceTierFrom") or 0) > 0:
+            has_drop_to_free = True
+        if a.get("availabilityChangeType") == "RELEASE" \
+                and a.get("priceTier") == 0:
+            released_free = True
+    if has_drop_to_free:
+        return "confirmed"
+    if released_free:
+        return "always_free"
+    return "unknown"
 
 
 def scrape_360reader():
