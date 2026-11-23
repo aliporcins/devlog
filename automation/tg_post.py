@@ -131,7 +131,12 @@ def bot_api(token, method, payload=None, files=None):
 
 
 def bot_api_retry(token, method, payload=None, files=None, tries=3):
-    """bot_api with 429 handling: wait retry_after and retry."""
+    """bot_api with 429 handling and transient-network retry. A single
+    'Connection reset by peer' / timeout must not kill the whole run:
+    Telegram's API (and the runner's egress) occasionally drops a
+    connection, so URLError is retried with backoff; only after all
+    attempts fail does it return ok=False (callers then fail cleanly
+    instead of crashing with a traceback)."""
     for attempt in range(tries):
         try:
             res = bot_api(token, method, payload, files)
@@ -155,6 +160,13 @@ def bot_api_retry(token, method, payload=None, files=None, tries=3):
                 time.sleep(wait + 2)
                 continue
             raise
+        except urllib.error.URLError as e:
+            # Transient network error (connection reset, timeout, DNS).
+            print(f"  network error {e} (attempt {attempt + 1})")
+            if attempt + 1 < tries:
+                time.sleep(5 * (attempt + 1))
+                continue
+            return {"ok": False, "error": f"network error: {e}"}
     return {"ok": False, "error": "retries exhausted"}
 
 
