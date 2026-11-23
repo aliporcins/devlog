@@ -19,21 +19,21 @@ Caption format (structured fields, HTML — same layout as the live
 posting script tg_channel_post_full.py):
   Paid apps start with #应用限免:
     #应用限免
-    📁 软件名称：<name>
+    📁 名称：<name>
     📂 分类：<category>
-    🍎 支持平台：<devices> · iOS <min_os>+
-    💰 软件价格：<s>$4.99</s> → <b>免费</b>
+    🍎 平台：<devices> · iOS <min_os>+
+    💰 价格：<s>$4.99</s> → <b>0 元</b>
     ⭐ 评分：★4.8 (4,055)
-    🌐 支持语言：中文、英文、日文等 5 种
-    📝 软件简介：<one-line intro>
+    🌐 语言：中文、英文、日文等 5 种
+    📝 简介：<one-line intro>
     📲 下载链接：<a href="...">在 App Store 打开</a>
   IAP apps start with #终身内购. The first line is the IAP name itself
   (🎁 内购：<iap> — it already contains the app name, so there is NO
-  separate 软件名称 line), then 📂 分类, then the IAP price
+  separate 名称 line), then 📂 分类, then the IAP price
   (💰 内购价格 — $9.99 is the IAP price, not the app price):
     🎟️ 兑换链接：<a href="...">点这里兑换</a>
   The '📝 解锁内容' line was removed (it only repeated the IAP name);
-  '📝 软件简介' (the app intro, same format as paid posts) takes its place.
+  '📝 简介' (the app intro, same format as paid posts) takes its place.
   Redeem links are PUBLIC direct Apple links only
   (https://apps.apple.com/redeem?ctx=offercodes&id=<id>&code=<code>) —
   a custom offer code the developer published openly. No AppHunt links
@@ -207,7 +207,8 @@ def _parse_paid_app(sec):
     icon = re.search(r"!\[.*?\]\(\.\./assets/([^)]+)\)", sec)
     orig = re.search(r"\*\*原价\*\*：([^，\n]+)", sec)
     rating = re.search(r"\*\*评分\*\*：★([^\n]+)", sec)
-    devices = re.search(r"\*\*支持设备\*\*：([^\n]+)", sec)
+    size = re.search(r"\*\*大小\*\*：([^\n]+)", sec)
+    devices = re.search(r"\*\*(?:支持)?设备\*\*：([^\n]+)", sec)
     min_os = re.search(r"\*\*最低系统\*\*：iOS ([^\n]+)", sec)
     desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
     link = re.search(r"\[在 App Store 打开\]\(([^)]+)\)", sec)
@@ -216,6 +217,7 @@ def _parse_paid_app(sec):
         "icon": icon.group(1) if icon else "",
         "orig": orig.group(1).strip() if orig else "",
         "rating": rating.group(1).strip() if rating else "",
+        "size": size.group(1).strip() if size else "",
         "devices": devices.group(1).strip() if devices else "",
         "min_os": min_os.group(1).strip() if min_os else "",
         "desc": desc.group(1).strip() if desc else "",
@@ -232,7 +234,8 @@ def _parse_iap_app(sec):
     iap = re.search(r"\*\*内购\*\*：([^\n]+)", sec)
     orig = re.search(r"\*\*原价\*\*：([^，\n]+)", sec)
     rating = re.search(r"\*\*评分\*\*：★([^\n]+)", sec)
-    devices = re.search(r"\*\*支持设备\*\*：([^\n]+)", sec)
+    size = re.search(r"\*\*大小\*\*：([^\n]+)", sec)
+    devices = re.search(r"\*\*(?:支持)?设备\*\*：([^\n]+)", sec)
     desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
     unlock = re.search(r"\*\*解锁内容\*\*：([^\n]+)", sec)
     left = re.search(r"\*\*剩余兑换码\*\*：([^\n]+)", sec)
@@ -246,6 +249,7 @@ def _parse_iap_app(sec):
         "iap": iap.group(1).strip() if iap else "",
         "orig": orig.group(1).strip() if orig else "",
         "rating": rating.group(1).strip() if rating else "",
+        "size": size.group(1).strip() if size else "",
         "devices": devices.group(1).strip() if devices else "",
         "desc": desc.group(1).strip() if desc else "",
         "unlock": unlock.group(1).strip() if unlock else "",
@@ -286,7 +290,7 @@ def _parse_section_apps(sec_text, is_iap):
 
 def parse_post(md):
     """Return (featured_names, paid_apps, iap_apps) — same format as the
-    2026-11-23 post (IAP sections also carry 评分/支持设备/干什么的).
+    2026-11-23 post (IAP sections also carry 评分/设备/干什么的).
     Each app dict also carries 'category' ('' when the post is flat)."""
     featured = []
     m = re.search(r"## 今日极力推荐(.*?)(?=\n## |\Z)", md, re.S)
@@ -304,10 +308,33 @@ def esc(s):
     return html.escape(s or "")
 
 
+def rating_line(a):
+    """⭐ 评分：4.6 — score only, no rating count. The blog stores
+    rating as '4.6 (28,711)' (parsed from '★4.6 (28,711)'). No rating,
+    or a 0.0 rating, returns '' so the line is omitted — never
+    invented."""
+    r = str(a.get("rating") or "").strip()
+    if not r:
+        return ""
+    m = re.match(r"([\d.]+)\s*\(([\d,]+)\)", r)
+    if not m:
+        return ""
+    val, count = m.group(1), m.group(2)
+    try:
+        if float(val) <= 0 or int(count.replace(",", "")) <= 0:
+            return ""
+    except ValueError:
+        return ""
+    return f"⭐ 评分：{val}"
+
+
 def platform_line(a):
-    """支持平台：devices · iOS <min_os>+ (parts omitted when unknown).
+    """平台：devices · iOS <min_os>+ (parts omitted when unknown).
     iPod touch is dropped: the product is discontinued and the extra
-    segment makes the line wrap mid-phrase on phones."""
+    segment makes the line wrap mid-phrase on phones. Apple TV-only
+    apps say so clearly: "Apple TV · tvOS <min_tvos>+" (the iOS
+    minimum does not apply to tvOS); universal apps list Apple TV
+    among the devices, e.g. "iPhone / iPad / Apple TV · iOS 17.0+"."""
     parts = []
     if a.get("devices"):
         devs = " / ".join(
@@ -315,13 +342,18 @@ def platform_line(a):
         )
         if devs:
             parts.append(devs)
-    if a.get("min_os"):
+    if parts and parts[0] == "Apple TV":
+        # tvOS-only: the iOS minimum is meaningless here.
+        tvos = a.get("min_tvos")
+        if tvos and tvos != "?":
+            parts.append(f"tvOS {tvos}+")
+    elif a.get("min_os"):
         parts.append(f"iOS {a['min_os']}+")
     return " · ".join(parts)
 
 
-def price_line(orig, free_word, label="软件价格"):
-    """软件价格：<s>$4.99</s> → <b>免费</b> (free_word carries the HTML).
+def price_line(orig, free_word, label="价格"):
+    """价格：<s>$0.99</s> → <b>0 元</b> (free_word carries the HTML).
     IAP posts pass label="内购价格" — $9.99 is the IAP price, not the
     app price."""
     if orig:
@@ -330,23 +362,29 @@ def price_line(orig, free_word, label="软件价格"):
 
 
 def paid_caption(a, lang_txt):
-    """Paid caption — same layout as the live posting script. The
-    category is a line inside the caption (📂 分类：...); no separate
-    category header messages are sent."""
-    lines = ["#应用限免", "",
-             f"📁 软件名称：{esc(a['name'])}"]
+    """Paid caption — locked format (2026-11-24): one continuous header
+    block (name / price / category / platform / rating / size /
+    languages, NO blank lines), then a blank line, the intro paragraph,
+    a blank line, and the download link. Price is the hook, right
+    after the name. Rating is score only. Platform shows Apple TV
+    when supported; iPod touch is dropped."""
+    lines = ["#应用限免",
+             f"📁 名称：{esc(a['name'])}",
+             price_line(a["orig"], "<b>0 元</b>")]
     if a.get("category"):
         lines.append(f"📂 分类：{esc(a['category'])}")
     plat = platform_line(a)
     if plat:
-        lines.append(f"🍎 支持平台：{esc(plat)}")
-    lines.append(price_line(a["orig"], "<b>免费</b>"))
-    if a.get("rating") and not a["rating"].startswith("0.0"):
-        lines.append(f"⭐ 评分：★{esc(a['rating'])}")
+        lines.append(f"📱 平台：{esc(plat)}")
+    rl = rating_line(a)
+    if rl:
+        lines.append(rl)
+    if a.get("size"):
+        lines.append(f"💾 大小：{esc(a['size'])}")
     if lang_txt:
-        lines.append(f"🌐 支持语言：{esc(lang_txt)}")
+        lines.append(f"🌐 语言：{esc(lang_txt)}")
     if a.get("desc"):
-        lines += ["", f"📝 软件简介：{esc(a['desc'])}"]
+        lines += ["", f"📝 简介：{esc(a['desc'])}"]
     if a.get("link"):
         lines += ["", f'📲 下载链接：<a href="{a["link"]}">在 App Store 打开</a>']
     return "\n".join(lines)
@@ -357,28 +395,36 @@ def iap_caption(a, lang_txt, redeem_url=""):
     is a PUBLIC Apple redeem link (apps.apple.com/redeem?ctx=offercodes
     &id=..&code=..); when empty the claim line is omitted entirely.
     No AppHunt links are ever sent. The '解锁内容' line was removed
-    (it only repeated the IAP name); the app intro ('📝 软件简介',
+    (it only repeated the IAP name); the app intro ('📝 简介',
     from the parsed '干什么的' field) takes its place, same format as
     paid posts. Lead line (2026-11-24): the APP name, not the IAP
     name — the IAP name is almost always the app name plus a suffix
     (Pro/Premium), so it adds nothing; the app name is what readers
     recognise and search for, and the redeem link already points at
     the exact IAP. The price is labelled 内购价格 (it is the IAP
-    price, not the app price). Category is a line inside the caption."""
-    lines = ["#终身内购", "",
-             f"📁 软件名称：{esc(a['name'])}"]
+    price, not the app price). Category is a line inside the caption.
+    Same locked header block as paid captions: name / price / category
+    / platform / rating / size / languages with NO blank lines; blank
+    lines only before the intro and before the links."""
+    lines = ["#终身内购",
+             f"📁 名称：{esc(a['name'])}",
+             price_line(a["orig"], "<b>0 元</b>", label="内购价格")]
+    if a.get("left"):
+        lines.append(f"📦 剩余兑换码：{esc(a['left'])}")
     if a.get("category"):
         lines.append(f"📂 分类：{esc(a['category'])}")
     plat = platform_line(a)
     if plat:
-        lines.append(f"🍎 支持平台：{esc(plat)}")
-    lines.append(price_line(a["orig"], "<b>0 元</b>", label="内购价格"))
-    if a.get("left"):
-        lines.append(f"📦 剩余兑换码：{esc(a['left'])}")
+        lines.append(f"📱 平台：{esc(plat)}")
+    rl = rating_line(a)
+    if rl:
+        lines.append(rl)
+    if a.get("size"):
+        lines.append(f"💾 大小：{esc(a['size'])}")
     if lang_txt:
-        lines.append(f"🌐 支持语言：{esc(lang_txt)}")
+        lines.append(f"🌐 语言：{esc(lang_txt)}")
     if a.get("desc"):
-        lines += ["", f"📝 软件简介：{esc(a['desc'])}"]
+        lines += ["", f"📝 简介：{esc(a['desc'])}"]
     if a.get("link"):
         lines += ["", f'📲 下载链接：<a href="{a["link"]}">在 App Store 打开</a>']
     if redeem_url:
