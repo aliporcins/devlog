@@ -2,10 +2,10 @@
 """Post the daily free-apps list to the Telegram channel @freeapps_daily,
 mirroring the blog post: cover image, then ONE message per app — a wide
 banner (banner-<id>.jpg, screenshots stitched side by side) with a
-structured HTML caption. No blog URL is included anywhere. Apps are
-grouped by category (the blog post's category sub-headings): a short
-category header message (📂 <category>（N 款/个）) opens each group,
-recorded in posted.json so a re-run does not repeat it.
+structured HTML caption. No blog URL is included anywhere. The category
+is shown inside each app's caption (📂 分类：<category>); NO separate
+category header messages are sent (user decision 2026-11-24 — bare
+headers from a partial run fragmented the channel).
 
 Usage:
   tg_post.py --date 2026-11-23 [--only apps|iap] [--dry-run]
@@ -20,14 +20,17 @@ posting script tg_channel_post_full.py):
   Paid apps start with #应用限免:
     #应用限免
     📁 软件名称：<name>
+    📂 分类：<category>
     🍎 支持平台：<devices> · iOS <min_os>+
     💰 软件价格：<s>$4.99</s> → <b>免费</b>
     ⭐ 评分：★4.8 (4,055)
     🌐 支持语言：中文、英文、日文等 5 种
     📝 软件简介：<one-line intro>
     📲 下载链接：<a href="...">在 App Store 打开</a>
-  IAP apps start with #终身内购 and additionally carry 内购 / 剩余兑换码 /
-  软件简介， and end with the public redeem link when one is known:
+  IAP apps start with #终身内购. The first line is the IAP name itself
+  (🎁 内购：<iap> — it already contains the app name, so there is NO
+  separate 软件名称 line), then 📂 分类, then the IAP price
+  (💰 内购价格 — $9.99 is the IAP price, not the app price):
     🎟️ 兑换链接：<a href="...">点这里兑换</a>
   The '📝 解锁内容' line was removed (it only repeated the IAP name);
   '📝 软件简介' (the app intro, same format as paid posts) takes its place.
@@ -40,8 +43,12 @@ posting script tg_channel_post_full.py):
 
 Rate limits: on HTTP 429 the retry_after value is honored and the failed
 send retried (up to 3 times). Sent message IDs are recorded in
-automation/data/<date>/posted.json; a re-run skips apps already posted
-(resume), so a 429 never causes duplicates. 4s sleep between sends.
+automation/data/<date>/posted.json INCREMENTALLY as each message
+succeeds. Before posting anything, a getMe pre-flight check fails fast
+when Telegram is unreachable. If the run fails midway, it rolls back:
+every message posted by THIS run is deleted and posted.json is
+reverted to its pre-run state, so the next run re-posts the full set
+fresh instead of patching the channel. 4s sleep between sends.
 """
 import argparse
 import html
@@ -50,6 +57,7 @@ import os
 import re
 import sys
 import time
+import traceback
 import urllib.error
 import urllib.request
 import uuid
@@ -170,6 +178,27 @@ def bot_api_retry(token, method, payload=None, files=None, tries=3):
     return {"ok": False, "error": "retries exhausted"}
 
 
+def preflight(token):
+    """Quick Telegram reachability check (getMe) before posting
+    anything. A dead connection must fail fast with a clear error and
+    post NOTHING — a partial batch is how the channel got fragmented
+    (2026-11-23: first real run died mid-post). Returns True when
+    Telegram answers."""
+    try:
+        res = bot_api_retry(token, "getMe", tries=2)
+    except Exception as e:
+        print(f"pre-flight check failed: cannot reach Telegram ({e}); "
+              f"posting nothing", file=sys.stderr)
+        return False
+    if not res.get("ok"):
+        print(f"pre-flight check failed: Telegram returned {res}; "
+              f"posting nothing", file=sys.stderr)
+        return False
+    print(f"pre-flight check ok: Telegram reachable "
+          f"(bot @{res['result'].get('username')})")
+    return True
+
+
 def _parse_paid_app(sec):
     """Fields of one paid app section (blog post)."""
     name = sec.split("\n", 1)[0].strip()
@@ -285,17 +314,23 @@ def platform_line(a):
     return " · ".join(parts)
 
 
-def price_line(orig, free_word):
-    """软件价格：<s>$4.99</s> → <b>免费</b> (free_word carries the HTML)."""
+def price_line(orig, free_word, label="软件价格"):
+    """软件价格：<s>$4.99</s> → <b>免费</b> (free_word carries the HTML).
+    IAP posts pass label="内购价格" — $9.99 is the IAP price, not the
+    app price."""
     if orig:
-        return f"💰 软件价格：<s>{esc(orig)}</s> → {free_word}"
-    return f"💰 软件价格：{free_word}"
+        return f"💰 {label}：<s>{esc(orig)}</s> → {free_word}"
+    return f"💰 {label}：{free_word}"
 
 
 def paid_caption(a, lang_txt):
-    """Paid caption — same layout as the live posting script."""
+    """Paid caption — same layout as the live posting script. The
+    category is a line inside the caption (📂 分类：...); no separate
+    category header messages are sent."""
     lines = ["#应用限免", "",
              f"📁 软件名称：{esc(a['name'])}"]
+    if a.get("category"):
+        lines.append(f"📂 分类：{esc(a['category'])}")
     plat = platform_line(a)
     if plat:
         lines.append(f"🍎 支持平台：{esc(plat)}")
@@ -318,15 +353,22 @@ def iap_caption(a, lang_txt, redeem_url=""):
     No AppHunt links are ever sent. The '解锁内容' line was removed
     (it only repeated the IAP name); the app intro ('📝 软件简介',
     from the parsed '干什么的' field) takes its place, same format as
-    paid posts."""
-    lines = ["#终身内购", "",
-             f"📁 软件名称：{esc(a['name'])}"]
+    paid posts. Dedup (2026-11-24): the IAP name already contains the
+    app name, so there is NO separate 软件名称 line — the first line
+    is 🎁 内购：<iap>; the price is labelled 内购价格 (it is the IAP
+    price, not the app price). Category is a line inside the caption.
+    Fallback: when an IAP has no iap name, the app name is used."""
+    lines = ["#终身内购", ""]
     if a.get("iap"):
         lines.append(f"🎁 内购：{esc(a['iap'])}")
+    else:
+        lines.append(f"📁 软件名称：{esc(a['name'])}")
+    if a.get("category"):
+        lines.append(f"📂 分类：{esc(a['category'])}")
     plat = platform_line(a)
     if plat:
         lines.append(f"🍎 支持平台：{esc(plat)}")
-    lines.append(price_line(a["orig"], "<b>0 元</b>"))
+    lines.append(price_line(a["orig"], "<b>0 元</b>", label="内购价格"))
     if a.get("left"):
         lines.append(f"📦 剩余兑换码：{esc(a['left'])}")
     if lang_txt:
@@ -387,34 +429,52 @@ def main():
     if os.path.isfile(posted_path):
         with open(posted_path) as f:
             posted = json.load(f)
+    # Snapshot of the pre-run state + the message ids THIS run posts.
+    # Rollback (below) deletes exactly these ids and reverts posted.json
+    # to this snapshot, so a failed run leaves the channel clean and
+    # the next run re-posts the full set fresh instead of patching.
+    posted_before = dict(posted)
+    this_run_ids = []
 
     def record(key, message_ids):
         posted[key] = message_ids
+        this_run_ids.extend(message_ids)
         with open(posted_path, "w") as f:
             json.dump(posted, f, indent=1)
 
-    def send_category_header(cat, count, unit, key_prefix):
-        """One short text message as the sub-heading for a category
-        group (e.g. 📂 效率工具（3 款）). Sent once per category; a
-        re-run skips it via posted.json. Returns False on failure."""
-        key = f"{key_prefix}:{cat}"
-        if key in posted:
-            return True
-        text = f"📂 <b>{esc(cat)}</b>（{count} {unit}）"
-        if args.dry_run:
-            print(f"[dry-run] category header: {text!r}")
-            return True
-        res = bot_api_retry(token, "sendMessage",
-                            {"chat_id": str(chat_id), "text": text,
-                             "parse_mode": "HTML",
-                             "disable_web_page_preview": True})
-        print(f"category {cat}: {res.get('ok')}")
-        if not res.get("ok"):
-            print("  failed:", res, file=sys.stderr)
-            return False
-        record(key, [res["result"]["message_id"]])
-        time.sleep(sleep_s)
-        return True
+    def rollback():
+        """Best-effort rollback: delete every message posted by THIS
+        run and revert posted.json to its pre-run state. Never raises
+        — a failed rollback must not mask the original error, and it
+        must never touch messages from earlier runs (they are not in
+        this_run_ids)."""
+        if not this_run_ids:
+            return
+        print(f"[rollback] deleting {len(this_run_ids)} message(s) "
+              f"posted by this run...")
+        if token:
+            for mid in this_run_ids:
+                try:
+                    res = bot_api_retry(token, "deleteMessage",
+                                        {"chat_id": str(chat_id),
+                                         "message_id": mid}, tries=2)
+                    print(f"  [rollback] delete {mid}: {res.get('ok')}")
+                except Exception as e:
+                    print(f"  [rollback] delete {mid} failed "
+                          f"(ignored): {e}")
+        try:
+            with open(posted_path, "w") as f:
+                json.dump(posted_before, f, indent=1)
+            print("[rollback] posted.json reverted to pre-run state")
+        except Exception as e:
+            print(f"[rollback] could not revert posted.json "
+                  f"(ignored): {e}")
+
+    def fail(msg):
+        """Log the failure, roll back this run's posts, return 1."""
+        print(msg, file=sys.stderr)
+        rollback()
+        return 1
 
     y, m, d = date.split("-")
     date_cn = f"{int(y)}年{int(m)}月{int(d)}日"
@@ -446,6 +506,31 @@ def main():
                 return p
         return ""
 
+    # Pre-flight: fail fast when Telegram is unreachable, BEFORE
+    # posting anything. A dead connection mid-run is what left a
+    # partial batch in the channel (2026-11-23). Skipped in dry-run
+    # (no token, nothing is sent).
+    if not args.dry_run and not preflight(token):
+        return fail("pre-flight check failed: Telegram unreachable, "
+                    "posting nothing")
+
+    try:
+        rc = _post_all(args, token, chat_id, date, date_cn, sleep_s,
+                       featured, paid_apps, iap_apps, langs, posted,
+                       record, fail, photo_for)
+    except Exception:
+        traceback.print_exc()
+        return fail("unexpected error during posting (rolled back)")
+    return rc
+
+
+def _post_all(args, token, chat_id, date, date_cn, sleep_s,
+              featured, paid_apps, iap_apps, langs, posted,
+              record, fail, photo_for):
+    """The three posting steps (cover, paid apps, IAPs). Separated so
+    main() can wrap it in try/except and roll back on any crash.
+    Failure paths return fail(...) (which rolls back and returns 1);
+    the caller propagates that return value."""
     # 1. Cover photo + intro caption
     if not args.only and "cover" not in posted:
         cover = os.path.join(
@@ -467,27 +552,14 @@ def main():
             print("cover:", res.get("ok"),
                   res.get("result", {}).get("message_id"))
             if not res.get("ok"):
-                print("cover failed:", res, file=sys.stderr)
-                return 1
+                return fail(f"cover failed: {res}")
             record("cover", [res["result"]["message_id"]])
         time.sleep(sleep_s)
 
-    # 2. One banner photo per paid app, grouped by category: a short
-    # category header message opens each group.
+    # 2. One banner photo per paid app. The category is shown inside
+    # each app's caption (📂 分类：...); no separate header messages.
     if args.only in (None, "apps"):
-        paid_cat_counts = {}
         for a in paid_apps:
-            c = a.get("category", "")
-            if c:
-                paid_cat_counts[c] = paid_cat_counts.get(c, 0) + 1
-        cur_cat = None
-        for a in paid_apps:
-            cat = a.get("category", "")
-            if cat and cat != cur_cat:
-                if not send_category_header(cat, paid_cat_counts.get(cat, 0),
-                                            "款", "cat"):
-                    return 1
-                cur_cat = cat
             key = f"app:{a['link']}"
             if key in posted:
                 print(f"app {a['name']}: already posted, skipped")
@@ -508,12 +580,12 @@ def main():
             ok = res.get("ok")
             print(f"app {a['name']}: {ok}")
             if not ok:
-                print("  failed:", res, file=sys.stderr)
-                return 1
+                return fail(f"app {a['name']} failed: {res}")
             record(key, [res["result"]["message_id"]])
             time.sleep(sleep_s)
 
-    # 3. IAPs: intro + one banner photo per IAP
+    # 3. IAPs: intro + one banner photo per IAP. Category is inside
+    # each IAP's caption; no separate header messages.
     if args.only in (None, "iap") and iap_apps:
         if "iap_intro" not in posted:
             text = ("<b>终身内购 0 元兑换</b>\n\n"
@@ -528,23 +600,10 @@ def main():
                                      "disable_web_page_preview": True})
                 print("iap intro:", res.get("ok"))
                 if not res.get("ok"):
-                    print("  failed:", res, file=sys.stderr)
-                    return 1
+                    return fail(f"iap intro failed: {res}")
                 record("iap_intro", [res["result"]["message_id"]])
             time.sleep(sleep_s)
-        iap_cat_counts = {}
         for a in iap_apps:
-            c = a.get("category", "")
-            if c:
-                iap_cat_counts[c] = iap_cat_counts.get(c, 0) + 1
-        cur_cat = None
-        for a in iap_apps:
-            cat = a.get("category", "")
-            if cat and cat != cur_cat:
-                if not send_category_header(cat, iap_cat_counts.get(cat, 0),
-                                            "个", "iapcat"):
-                    return 1
-                cur_cat = cat
             key = f"iap:{a['link']}"
             if key in posted:
                 print(f"iap {a['name']}: already posted, skipped")
@@ -566,8 +625,7 @@ def main():
             ok = res.get("ok")
             print(f"iap {a['name']}: {ok}")
             if not ok:
-                print("  failed:", res, file=sys.stderr)
-                return 1
+                return fail(f"iap {a['name']} failed: {res}")
             record(key, [res["result"]["message_id"]])
             time.sleep(sleep_s)
     return 0
