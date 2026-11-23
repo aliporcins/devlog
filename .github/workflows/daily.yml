@@ -33,11 +33,14 @@ jobs:
       - name: Install CJK font (cover images)
         # The cover title is Chinese; DejaVu has no CJK glyphs (boxes).
         # fonts-noto-cjk provides Noto Sans CJK SC for make_cover.
-        # The check fails the run loudly if no CJK font is present.
+        # The check fails the run loudly if no CJK font is present
+        # (a bare `ls | grep | head` would mask the failure: head exits 0).
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends fonts-noto-cjk
-          ls /usr/share/fonts/truetype/noto/ | grep -i cjk | head -5
+          CJK_FILES=$(find /usr/share/fonts -iname "NotoSansCJKsc-*.otf" -o -iname "NotoSansCJK-*.ttc" | head -5)
+          echo "$CJK_FILES"
+          [ -n "$CJK_FILES" ] || { echo "ERROR: no Noto Sans CJK font found"; exit 1; }
       - name: Run pipeline
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
