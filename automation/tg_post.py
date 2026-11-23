@@ -2,7 +2,10 @@
 """Post the daily free-apps list to the Telegram channel @freeapps_daily,
 mirroring the blog post: cover image, then ONE message per app — a wide
 banner (banner-<id>.jpg, screenshots stitched side by side) with a
-structured HTML caption. No blog URL is included anywhere.
+structured HTML caption. No blog URL is included anywhere. Apps are
+grouped by category (the blog post's category sub-headings): a short
+category header message (📂 <category>（N 款/个）) opens each group,
+recorded in posted.json so a re-run does not repeat it.
 
 Usage:
   tg_post.py --date 2026-11-23 [--only apps|iap] [--dry-run]
@@ -24,8 +27,10 @@ posting script tg_channel_post_full.py):
     📝 软件简介：<one-line intro>
     📲 下载链接：<a href="...">在 App Store 打开</a>
   IAP apps start with #终身内购 and additionally carry 内购 / 剩余兑换码 /
-  解锁内容， and end with the public redeem link when one is known:
+  软件简介， and end with the public redeem link when one is known:
     🎟️ 兑换链接：<a href="...">点这里兑换</a>
+  The '📝 解锁内容' line was removed (it only repeated the IAP name);
+  '📝 软件简介' (the app intro, same format as paid posts) takes its place.
   Redeem links are PUBLIC direct Apple links only
   (https://apps.apple.com/redeem?ctx=offercodes&id=<id>&code=<code>) —
   a custom offer code the developer published openly. No AppHunt links
@@ -153,9 +158,95 @@ def bot_api_retry(token, method, payload=None, files=None, tries=3):
     return {"ok": False, "error": "retries exhausted"}
 
 
+def _parse_paid_app(sec):
+    """Fields of one paid app section (blog post)."""
+    name = sec.split("\n", 1)[0].strip()
+    if name.startswith("---") or not name:
+        return None
+    icon = re.search(r"!\[.*?\]\(\.\./assets/([^)]+)\)", sec)
+    orig = re.search(r"\*\*原价\*\*：([^，\n]+)", sec)
+    rating = re.search(r"\*\*评分\*\*：★([^\n]+)", sec)
+    devices = re.search(r"\*\*支持设备\*\*：([^\n]+)", sec)
+    min_os = re.search(r"\*\*最低系统\*\*：iOS ([^\n]+)", sec)
+    desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
+    link = re.search(r"\[在 App Store 打开\]\(([^)]+)\)", sec)
+    return {
+        "name": name,
+        "icon": icon.group(1) if icon else "",
+        "orig": orig.group(1).strip() if orig else "",
+        "rating": rating.group(1).strip() if rating else "",
+        "devices": devices.group(1).strip() if devices else "",
+        "min_os": min_os.group(1).strip() if min_os else "",
+        "desc": desc.group(1).strip() if desc else "",
+        "link": link.group(1) if link else "",
+    }
+
+
+def _parse_iap_app(sec):
+    """Fields of one IAP promo section (blog post)."""
+    name = sec.split("\n", 1)[0].strip()
+    if name.startswith("---") or not name:
+        return None
+    icon = re.search(r"!\[.*?\]\(\.\./assets/([^)]+)\)", sec)
+    iap = re.search(r"\*\*内购\*\*：([^\n]+)", sec)
+    orig = re.search(r"\*\*原价\*\*：([^，\n]+)", sec)
+    rating = re.search(r"\*\*评分\*\*：★([^\n]+)", sec)
+    devices = re.search(r"\*\*支持设备\*\*：([^\n]+)", sec)
+    desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
+    unlock = re.search(r"\*\*解锁内容\*\*：([^\n]+)", sec)
+    left = re.search(r"\*\*剩余兑换码\*\*：([^\n]+)", sec)
+    min_os = re.search(r"\*\*最低系统\*\*：iOS ([^\n]+)", sec)
+    link = re.search(r"\[在 App Store 打开\]\(([^)]+)\)", sec)
+    redeem = re.search(
+        r"https://apps\.apple\.com/redeem\?[^)\s\"']+", sec)
+    return {
+        "name": name,
+        "icon": icon.group(1) if icon else "",
+        "iap": iap.group(1).strip() if iap else "",
+        "orig": orig.group(1).strip() if orig else "",
+        "rating": rating.group(1).strip() if rating else "",
+        "devices": devices.group(1).strip() if devices else "",
+        "desc": desc.group(1).strip() if desc else "",
+        "unlock": unlock.group(1).strip() if unlock else "",
+        "left": left.group(1).strip() if left else "",
+        "min_os": min_os.group(1).strip() if min_os else "",
+        "link": link.group(1) if link else "",
+        "redeem": redeem.group(0) if redeem else "",
+    }
+
+
+def _parse_section_apps(sec_text, is_iap):
+    """Parse one section (paid or IAP) into app dicts with 'category'.
+
+    Grouped format (2+ categories): `### <Category>（N 款/个）` headings
+    with `#### N. Name` apps underneath. Flat format (one category):
+    `### N. Name` apps directly. Both are accepted so an older flat
+    post still parses."""
+    parse_one = _parse_iap_app if is_iap else _parse_paid_app
+    apps = []
+    # Grouped: split on category headings (capture group keeps the name).
+    parts = re.split(r"\n### ([^#\n]+?)（\d+ [款个]）\n", sec_text)
+    if len(parts) >= 3:
+        for j in range(1, len(parts), 2):
+            cat = parts[j].strip()
+            for sec in re.split(r"\n#### \d+\. ", parts[j + 1])[1:]:
+                a = parse_one(sec)
+                if a:
+                    a["category"] = cat
+                    apps.append(a)
+        return apps
+    for sec in re.split(r"\n### \d+\. ", sec_text)[1:]:
+        a = parse_one(sec)
+        if a:
+            a["category"] = ""
+            apps.append(a)
+    return apps
+
+
 def parse_post(md):
     """Return (featured_names, paid_apps, iap_apps) — same format as the
-    2026-11-23 post (IAP sections also carry 评分/支持设备/干什么的)."""
+    2026-11-23 post (IAP sections also carry 评分/支持设备/干什么的).
+    Each app dict also carries 'category' ('' when the post is flat)."""
     featured = []
     m = re.search(r"## 今日极力推荐(.*?)(?=\n## |\Z)", md, re.S)
     if m:
@@ -163,59 +254,8 @@ def parse_post(md):
                     re.findall(r"\d+\.\s*([^\n]+)", m.group(1))]
     paid_sec = re.search(r"## 付费应用限时免费.*?(?=\n## 终身内购|\Z)", md, re.S)
     iap_sec = re.search(r"## 终身内购.*", md, re.S)
-    paid_apps = []
-    if paid_sec:
-        for sec in re.split(r"\n### \d+\. ", paid_sec.group(0))[1:]:
-            name = sec.split("\n", 1)[0].strip()
-            icon = re.search(r"!\[.*?\]\(\.\./assets/([^)]+)\)", sec)
-            orig = re.search(r"\*\*原价\*\*：([^，\n]+)", sec)
-            rating = re.search(r"\*\*评分\*\*：★([^\n]+)", sec)
-            devices = re.search(r"\*\*支持设备\*\*：([^\n]+)", sec)
-            min_os = re.search(r"\*\*最低系统\*\*：iOS ([^\n]+)", sec)
-            desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
-            link = re.search(r"\[在 App Store 打开\]\(([^)]+)\)", sec)
-            paid_apps.append({
-                "name": name,
-                "icon": icon.group(1) if icon else "",
-                "orig": orig.group(1).strip() if orig else "",
-                "rating": rating.group(1).strip() if rating else "",
-                "devices": devices.group(1).strip() if devices else "",
-                "min_os": min_os.group(1).strip() if min_os else "",
-                "desc": desc.group(1).strip() if desc else "",
-                "link": link.group(1) if link else "",
-            })
-    iap_apps = []
-    if iap_sec:
-        for sec in re.split(r"\n### \d+\. ", iap_sec.group(0))[1:]:
-            name = sec.split("\n", 1)[0].strip()
-            if name.startswith("---") or not name:
-                continue
-            icon = re.search(r"!\[.*?\]\(\.\./assets/([^)]+)\)", sec)
-            iap = re.search(r"\*\*内购\*\*：([^\n]+)", sec)
-            orig = re.search(r"\*\*原价\*\*：([^，\n]+)", sec)
-            rating = re.search(r"\*\*评分\*\*：★([^\n]+)", sec)
-            devices = re.search(r"\*\*支持设备\*\*：([^\n]+)", sec)
-            desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
-            unlock = re.search(r"\*\*解锁内容\*\*：([^\n]+)", sec)
-            left = re.search(r"\*\*剩余兑换码\*\*：([^\n]+)", sec)
-            min_os = re.search(r"\*\*最低系统\*\*：iOS ([^\n]+)", sec)
-            link = re.search(r"\[在 App Store 打开\]\(([^)]+)\)", sec)
-            redeem = re.search(
-                r"https://apps\.apple\.com/redeem\?[^)\s\"']+", sec)
-            iap_apps.append({
-                "name": name,
-                "icon": icon.group(1) if icon else "",
-                "iap": iap.group(1).strip() if iap else "",
-                "orig": orig.group(1).strip() if orig else "",
-                "rating": rating.group(1).strip() if rating else "",
-                "devices": devices.group(1).strip() if devices else "",
-                "desc": desc.group(1).strip() if desc else "",
-                "unlock": unlock.group(1).strip() if unlock else "",
-                "left": left.group(1).strip() if left else "",
-                "min_os": min_os.group(1).strip() if min_os else "",
-                "link": link.group(1) if link else "",
-                "redeem": redeem.group(0) if redeem else "",
-            })
+    paid_apps = _parse_section_apps(paid_sec.group(0), False) if paid_sec else []
+    iap_apps = _parse_section_apps(iap_sec.group(0), True) if iap_sec else []
     return featured, paid_apps, iap_apps
 
 
@@ -263,7 +303,10 @@ def iap_caption(a, lang_txt, redeem_url=""):
     """IAP caption — same layout as the live posting script. redeem_url
     is a PUBLIC Apple redeem link (apps.apple.com/redeem?ctx=offercodes
     &id=..&code=..); when empty the claim line is omitted entirely.
-    No AppHunt links are ever sent."""
+    No AppHunt links are ever sent. The '解锁内容' line was removed
+    (it only repeated the IAP name); the app intro ('📝 软件简介',
+    from the parsed '干什么的' field) takes its place, same format as
+    paid posts."""
     lines = ["#终身内购", "",
              f"📁 软件名称：{esc(a['name'])}"]
     if a.get("iap"):
@@ -276,8 +319,8 @@ def iap_caption(a, lang_txt, redeem_url=""):
         lines.append(f"📦 剩余兑换码：{esc(a['left'])}")
     if lang_txt:
         lines.append(f"🌐 支持语言：{esc(lang_txt)}")
-    if a.get("unlock"):
-        lines += ["", f"📝 解锁内容：{esc(a['unlock'])}"]
+    if a.get("desc"):
+        lines += ["", f"📝 软件简介：{esc(a['desc'])}"]
     if a.get("link"):
         lines += ["", f'📲 下载链接：<a href="{a["link"]}">在 App Store 打开</a>']
     if redeem_url:
@@ -338,6 +381,29 @@ def main():
         with open(posted_path, "w") as f:
             json.dump(posted, f, indent=1)
 
+    def send_category_header(cat, count, unit, key_prefix):
+        """One short text message as the sub-heading for a category
+        group (e.g. 📂 效率工具（3 款）). Sent once per category; a
+        re-run skips it via posted.json. Returns False on failure."""
+        key = f"{key_prefix}:{cat}"
+        if key in posted:
+            return True
+        text = f"📂 <b>{esc(cat)}</b>（{count} {unit}）"
+        if args.dry_run:
+            print(f"[dry-run] category header: {text!r}")
+            return True
+        res = bot_api_retry(token, "sendMessage",
+                            {"chat_id": str(chat_id), "text": text,
+                             "parse_mode": "HTML",
+                             "disable_web_page_preview": True})
+        print(f"category {cat}: {res.get('ok')}")
+        if not res.get("ok"):
+            print("  failed:", res, file=sys.stderr)
+            return False
+        record(key, [res["result"]["message_id"]])
+        time.sleep(sleep_s)
+        return True
+
     y, m, d = date.split("-")
     date_cn = f"{int(y)}年{int(m)}月{int(d)}日"
     sleep_s = 0 if args.dry_run else 4
@@ -394,9 +460,22 @@ def main():
             record("cover", [res["result"]["message_id"]])
         time.sleep(sleep_s)
 
-    # 2. One banner photo per paid app
+    # 2. One banner photo per paid app, grouped by category: a short
+    # category header message opens each group.
     if args.only in (None, "apps"):
+        paid_cat_counts = {}
         for a in paid_apps:
+            c = a.get("category", "")
+            if c:
+                paid_cat_counts[c] = paid_cat_counts.get(c, 0) + 1
+        cur_cat = None
+        for a in paid_apps:
+            cat = a.get("category", "")
+            if cat and cat != cur_cat:
+                if not send_category_header(cat, paid_cat_counts.get(cat, 0),
+                                            "款", "cat"):
+                    return 1
+                cur_cat = cat
             key = f"app:{a['link']}"
             if key in posted:
                 print(f"app {a['name']}: already posted, skipped")
@@ -441,7 +520,19 @@ def main():
                     return 1
                 record("iap_intro", [res["result"]["message_id"]])
             time.sleep(sleep_s)
+        iap_cat_counts = {}
         for a in iap_apps:
+            c = a.get("category", "")
+            if c:
+                iap_cat_counts[c] = iap_cat_counts.get(c, 0) + 1
+        cur_cat = None
+        for a in iap_apps:
+            cat = a.get("category", "")
+            if cat and cat != cur_cat:
+                if not send_category_header(cat, iap_cat_counts.get(cat, 0),
+                                            "个", "iapcat"):
+                    return 1
+                cur_cat = cat
             key = f"iap:{a['link']}"
             if key in posted:
                 print(f"iap {a['name']}: already posted, skipped")
