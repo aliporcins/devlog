@@ -19,6 +19,19 @@ Usage:
   apps.json, builds a PIL cover from the featured icons, runs build.py,
   deploys via wrangler (needs CLOUDFLARE_API_TOKEN env), then posts to
   Telegram via tg_post.py.
+- App intros are Chinese: the China App Store description is preferred;
+  otherwise the English first sentence is machine-translated (free Google
+  Translate web endpoint, no API key). The raw iTunes record (English
+  description) in apps.json is never modified.
+- Also writes automation/data/<date>/wechat.md (a copy-paste-ready WeChat
+  Official Account article), automation/data/<date>/wechat.html (the same
+  article as standalone HTML with inline styles, for paste into the WeChat
+  editor; images are absolute raw-GitHub URLs because the blog itself is
+  login-gated) and automation/data/<date>/xiaohongshu.txt
+  (a Xiaohongshu note: hook title, one-line Chinese intros, hashtags, no
+  external links — readers are told to search the app name in the App
+  Store). All are committed with the daily run; deploy and Telegram
+  are untouched by them.
 - --dry-run: generate everything but skip deploy and Telegram (writes files
   under a test date directory; safe to run any time).
 - Never invents a free-app end date; never logs in to Apple ID; never buys.
@@ -27,6 +40,7 @@ Repo root is the parent of this script's directory (the devlog checkout).
 """
 import argparse
 import datetime
+import html
 import json
 import os
 import re
@@ -39,6 +53,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scrape as sc
 from banner import build_banner
+from tg_post import format_langs
 import redeem_codes as rc
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,11 +151,16 @@ def format_devices(record):
 
 
 def first_sentence(text, max_len=70):
-    """First sentence of a description, capped at ~max_len chars."""
+    """First sentence of a description, capped at ~max_len chars.
+
+    Splits on Chinese terminators (。！？) and on English sentence ends
+    (. ! ? followed by a space), so an English description yields a real
+    first sentence instead of an arbitrary 70-char cut.
+    """
     if not text:
         return ""
     text = re.sub(r"\s+", " ", text).strip()
-    parts = re.split(r"[。！？\n]", text)
+    parts = re.split(r"[。！？\n]|(?<=[.!?])\s+", text)
     for p in parts:
         p = p.strip()
         if len(p) >= 8:
@@ -150,8 +170,38 @@ def first_sentence(text, max_len=70):
     return text[:max_len]
 
 
+def translate_en_to_zh(text):
+    """Translate a short English sentence to Chinese via the free Google
+    Translate web endpoint (translate.googleapis.com, client=gtx).
+    No API key, stdlib only. Returns '' on any failure — the caller
+    decides the fallback. A short sleep keeps us polite."""
+    if not text:
+        return ""
+    try:
+        q = urllib.parse.quote(text)
+        url = ("https://translate.googleapis.com/translate_a/single"
+               f"?client=gtx&sl=en&tl=zh-CN&dt=t&q={q}")
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read().decode())
+        out = "".join(seg[0] for seg in d[0] if seg and seg[0]).strip()
+        time.sleep(0.2)
+        return out
+    except Exception as e:
+        print(f"  [translate] failed: {e}")
+        return ""
+
+
 def chinese_intro(app_id, us_record):
-    """One-line Chinese intro: CN description first sentence, else US."""
+    """One-line Chinese intro.
+
+    1. China App Store description, first sentence (when it is Chinese).
+    2. Otherwise machine-translate the US description's first sentence.
+    3. If translation is unavailable, keep the English first sentence so
+       the post still says what the app does (logged as a warning).
+    4. No description at all: a generic Chinese line from name + genre.
+    The raw iTunes record is never modified.
+    """
     cn = lookup(app_id, country="CN")
     if cn and cn.get("description"):
         s = first_sentence(cn["description"])
@@ -160,6 +210,11 @@ def chinese_intro(app_id, us_record):
     if us_record.get("description"):
         s = first_sentence(us_record["description"])
         if s:
+            zh = translate_en_to_zh(s)
+            if zh and any("\u4e00" <= ch <= "\u9fff" for ch in zh):
+                return zh
+            print(f"  [intro] {app_id}: translation unavailable, "
+                  f"keeping English intro")
             return s
     genre = (us_record.get("primaryGenreName") or "应用")
     return f"{us_record.get('trackName', '')}是一款{genre}应用。"
@@ -187,22 +242,67 @@ def download_image(url, path):
 
 # ---------------- cover ----------------
 
+# CJK fonts for the cover. DejaVu has no CJK glyphs, so Chinese rendered
+# with it comes out as boxes. Preferred order: Noto Sans CJK SC .otf
+# (GitHub runner — the workflow installs fonts-noto-cjk), then the
+# NotoSansCJK .ttc collections (index 0 renders CJK), then DejaVu
+# (Latin only, last resort — Chinese will show as boxes).
+CJK_FONT_BOLD = [
+    "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Bold.otf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+]
+CJK_FONT_REGULAR = [
+    "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+]
+
+
+def _load_cover_font(candidates, size):
+    """First usable font from candidates; .ttc needs index=0."""
+    from PIL import ImageFont
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            if path.endswith(".ttc"):
+                return ImageFont.truetype(path, size, index=0)
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return None
+
+
 def make_cover(icon_paths, out_path, date_str, n_apps):
-    """1200x630 dark cover: featured icons + title text."""
+    """1200x630 dark cover: featured icons + title text.
+
+    The title and date lines are Chinese, so they must be drawn with a
+    CJK font (Noto Sans CJK SC). DejaVu has no CJK glyphs and renders
+    them as boxes — the 2026-11-23 cover was all boxes for this reason.
+    """
     from PIL import Image, ImageDraw, ImageFont
     W, H = 1200, 630
     img = Image.new("RGB", (W, H), (18, 18, 24))
     d = ImageDraw.Draw(img)
     # subtle gold accent bar
     d.rectangle([0, 0, W, 10], fill=(212, 175, 55))
-    try:
-        font_big = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
-        font_small = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
-    except Exception:
-        font_big = ImageFont.load_default()
-        font_small = ImageFont.load_default()
+    font_big = _load_cover_font(CJK_FONT_BOLD, 64)
+    if font_big is None:
+        try:
+            font_big = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
+        except Exception:
+            font_big = ImageFont.load_default()
+    font_small = _load_cover_font(CJK_FONT_REGULAR, 36)
+    if font_small is None:
+        try:
+            font_small = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+        except Exception:
+            font_small = ImageFont.load_default()
     d.text((60, 60), "今日限免", font=font_big, fill=(245, 245, 245))
     d.text((60, 150), f"{date_str} · {n_apps} 款完全免费",
            font=font_small, fill=(200, 200, 210))
@@ -336,6 +436,290 @@ def write_post(date, paid, iaps, featured, asset_dir):
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     print(f"  post -> {path}")
+    return path
+
+
+# ---------------- wechat / xiaohongshu ----------------
+
+def _banner_image(a, asset_dir, iap=False):
+    """Image file to use for an app: banner-<id>.jpg when built, else the
+    app icon. Returns the path relative to assets/ (for display)."""
+    if os.path.isfile(os.path.join(asset_dir, f"banner-{a['id']}.jpg")):
+        return f"banner-{a['id']}.jpg"
+    if iap:
+        return f"iap/{a['id']}.jpg"
+    return f"{a['id']}.jpg"
+
+
+def write_wechat(date, paid, iaps, featured, languages, asset_dir):
+    """Write automation/data/<date>/wechat.md — a copy-paste-ready WeChat
+    Official Account article (Markdown). Cover image: upload
+    assets/free-apps-<ymd>/cover.jpg as the cover in the WeChat editor.
+    No Telegram emoji pile-up; plain sections, App Store links kept
+    (WeChat articles can carry them)."""
+    ymd = date.replace("-", "")
+    total_paid = sum(a["price_usd"] or 0 for a in paid)
+    total_iap = sum(a["iap_price"] or 0 for a in iaps)
+    lines = [
+        f"# 今日限免｜{len(paid)} 款付费 App 限时免费",
+        "",
+        f"封面图：assets/free-apps-{ymd}/cover.jpg（在公众号编辑器里把这张图设为封面）",
+        "",
+        f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 {total_paid:.0f} 美元；"
+        f"另外还有 {len(iaps)} 个终身内购可用兑换码 0 元领，原价加起来约 {total_iap:.0f} 美元。"
+        f"限免随时可能结束，看到喜欢的就领。",
+        "",
+    ]
+    if featured:
+        lines += ["## 今日极力推荐", ""]
+        for i, a in enumerate(featured, 1):
+            price = f"${a['price_usd']:.2f}" if a["price_usd"] else "付费"
+            lines.append(
+                f"{i}. **{a['name']}**——{a['intro']}（原价 {price}，"
+                f"评分 {a['rating']:.1f}）")
+        lines += ["", ""]
+    lines += [f"## 付费应用限时免费（{len(paid)} 款）", "",
+              "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
+              ""]
+    for i, a in enumerate(paid, 1):
+        lang_txt = format_langs(languages.get(str(a["id"]), []))
+        lines += [
+            f"### {i}. {a['name']}",
+            "",
+            f"**原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
+            else "**原价**：付费应用，现在免费",
+            f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）",
+            f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}",
+        ]
+        if lang_txt:
+            lines.append(f"**支持语言**：{lang_txt}")
+        lines += [
+            f"**简介**：{a['intro']}",
+            f"**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
+            "",
+        ]
+    if iaps:
+        lines += [
+            f"## 终身内购 0 元兑换（{len(iaps)} 个）",
+            "",
+            "这几个不是商店里直接降价到 0 元，而是开发者发的公开兑换码："
+            "点下面的兑换链接直接进 App Store 兑。每个兑换码一个 Apple "
+            "账号只能用一次，都是终身解锁、不是订阅，不会续费。",
+            "",
+            "**怎么领**：先装上对应的免费 App，再点该款下面的兑换链接，"
+            "自动跳到 App Store 兑换页确认就行。不用绑卡，没有试用期。"
+            "没有兑换链接的款，暂时只能先装 App，等开发者放出公开码。",
+            "",
+        ]
+        for i, a in enumerate(iaps, 1):
+            lang_txt = format_langs(languages.get(str(a["id"]), []))
+            lines += [
+                f"### {i}. {a['name']}",
+                "",
+                f"**内购**：{a['iap_name']}",
+                f"**原价**：${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
+                else "**原价**：兑换码 0 元领",
+            ]
+            if a.get("rating"):
+                lines.append(
+                    f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）")
+            lines.append(
+                f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}")
+            if lang_txt:
+                lines.append(f"**支持语言**：{lang_txt}")
+            lines += [
+                f"**简介**：{a['intro']}",
+                f"**解锁内容**：{a['unlock']}",
+            ]
+            if a.get("redeem_url"):
+                lines.append(f"**兑换链接**：[点这里兑换]({a['redeem_url']})")
+            lines += [
+                f"**App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
+                "",
+            ]
+    lines += ["---", "", "限免结束时间苹果不公布，一般 1–3 天，尽快领。", ""]
+    path = os.path.join(DATA_DIR, date, "wechat.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print(f"  wechat -> {path}")
+    return path
+
+
+def write_xiaohongshu(date, paid, iaps, asset_dir):
+    """Write automation/data/<date>/xiaohongshu.txt — a copy-paste-ready
+    Xiaohongshu note. No external links anywhere (Xiaohongshu blocks
+    them): readers are told to search the app name in the App Store.
+    Images to post are listed at the end (banner-<id>.jpg)."""
+    ymd = date.replace("-", "")
+    total_paid = sum(a["price_usd"] or 0 for a in paid)
+    lines = [
+        f"今日限免｜这 {len(paid)} 款付费 App 白嫖，手慢无",
+        "",
+        f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 {total_paid:.0f} 美元，"
+        f"全部 0 元领，限免随时结束，看到就冲！",
+        "",
+        "在 App Store 搜下面每个应用的名字，点“获取”就行，只点获取，别买内购。",
+        "",
+    ]
+    for i, a in enumerate(paid, 1):
+        price = (f"原价 ${a['price_usd']:.2f} → 免费" if a["price_usd"]
+                 else "付费应用 → 免费")
+        lines.append(
+            f"{i}. {a['name']}：{a['intro']}（{price}，评分 {a['rating']:.1f}）")
+    if iaps:
+        lines += ["", "终身内购 0 元兑：", ""]
+        for i, a in enumerate(iaps, 1):
+            price = (f"原价 ${a['iap_price']:.2f}" if a.get("iap_price")
+                     else "原价不详")
+            lines.append(
+                f"{i}. {a['name']}（{a['iap_name']}，{price}，兑换码免费领）："
+                f"{a['intro']}")
+        lines += [
+            "",
+            "内购兑换方式：先装上 App，再进 App Store 按提示兑换（兑换码免费领）。",
+        ]
+    lines += [
+        "",
+        "#应用限免 #限时免费 #iPhone必备 #免费App #薅羊毛 #苹果应用 #今日限免",
+        "",
+        "配图（按顺序发，每款一张）：",
+    ]
+    for a in paid:
+        lines.append(
+            f"- {_banner_image(a, asset_dir)}（{a['name']}）")
+    for a in iaps:
+        lines.append(
+            f"- {_banner_image(a, asset_dir, iap=True)}（{a['name']}·内购）")
+    lines.append(f"封面可用：assets/free-apps-{ymd}/cover.jpg")
+    path = os.path.join(DATA_DIR, date, "xiaohongshu.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print(f"  xiaohongshu -> {path}")
+    return path
+
+
+# Images for the WeChat HTML version. The blog itself is login-gated, so
+# its pages.dev asset URLs 302 to /login and the WeChat editor cannot
+# fetch them; the repo is public, so the same image files are served
+# directly from raw.githubusercontent.com.
+RAW_GITHUB_BASE = "https://raw.githubusercontent.com/aliporcins/devlog/main"
+
+
+def _raw_img_url(asset_rel):
+    """Absolute raw-GitHub URL for an asset/ path (WeChat-fetchable)."""
+    return f"{RAW_GITHUB_BASE}/assets/{asset_rel}"
+
+
+def write_wechat_html(date, paid, iaps, featured, languages, asset_dir):
+    """Write automation/data/<date>/wechat.html — a standalone HTML file
+    the user opens in a browser, selects all, copies, and pastes into the
+    WeChat Official Account editor. Inline styles only (no external CSS,
+    no JS; only tags/styles the WeChat editor keeps). Images are absolute
+    raw-GitHub URLs so the editor can fetch and re-upload them."""
+    ymd = date.replace("-", "")
+    total_paid = sum(a["price_usd"] or 0 for a in paid)
+    total_iap = sum(a["iap_price"] or 0 for a in iaps)
+    esc = html.escape
+    cover_url = _raw_img_url(f"free-apps-{ymd}/cover.jpg")
+    h = []
+    h.append("<!DOCTYPE html>")
+    h.append('<html lang="zh-CN"><head><meta charset="utf-8">')
+    h.append(f"<title>今日限免｜{len(paid)} 款付费 App 限时免费</title></head>")
+    h.append('<body style="margin:0;padding:0;background:#ffffff;">')
+    h.append('<div style="max-width:677px;margin:0 auto;padding:8px 16px 32px;'
+             "font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',"
+             "'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;"
+             'color:#333333;line-height:1.75;font-size:16px;">')
+    h.append('<h1 style="font-size:22px;line-height:1.4;color:#222222;'
+             'text-align:center;margin:24px 0 8px;">'
+             f"今日限免｜{len(paid)} 款付费 App 限时免费</h1>")
+    h.append('<p style="text-align:center;color:#888888;font-size:14px;'
+             f'margin:0 0 20px;">{date} · {len(paid)} 款付费应用免费领'
+             f"＋{len(iaps)} 个终身内购 0 元兑</p>")
+    h.append(f'<p style="text-align:center;margin:0 0 8px;"><img src="{cover_url}" '
+             'alt="今日限免封面" style="width:100%;display:block;border-radius:8px;"></p>')
+    h.append('<p style="color:#444444;font-size:15px;">'
+             f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 {total_paid:.0f} 美元；"
+             f"另外还有 {len(iaps)} 个终身内购可用兑换码 0 元领，原价加起来约 {total_iap:.0f} 美元。"
+             "限免随时可能结束，看到喜欢的就领。</p>")
+    if featured:
+        h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
+                 '#d4af37;padding-left:10px;margin:28px 0 12px;">今日极力推荐</h2>')
+        for i, a in enumerate(featured, 1):
+            price = f"${a['price_usd']:.2f}" if a["price_usd"] else "付费"
+            h.append('<p style="margin:8px 0;font-size:15px;color:#444444;">'
+                     f"<strong style=\"color:#222222;\">{i}. {esc(a['name'])}</strong>"
+                     f"——{esc(a['intro'])}（原价 {price}，评分 {a['rating']:.1f}）</p>")
+    h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
+             f"#d4af37;padding-left:10px;margin:28px 0 12px;\">付费应用限时免费（{len(paid)} 款）</h2>")
+    h.append('<p style="color:#444444;font-size:15px;">'
+             "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。</p>")
+    for i, a in enumerate(paid, 1):
+        lang_txt = format_langs(languages.get(str(a["id"]), []))
+        img_file = _banner_image(a, asset_dir)
+        img_url = _raw_img_url(f"free-apps-{ymd}/{img_file}")
+        h.append('<div style="background:#fafafa;border:1px solid #eeeeee;'
+                 'border-radius:8px;padding:16px;margin:0 0 16px;">')
+        h.append(f'<p style="margin:0 0 12px;"><img src="{img_url}" '
+                 f'alt="{esc(a["name"])}" style="width:100%;display:block;border-radius:6px;"></p>')
+        h.append(f'<h3 style="font-size:17px;margin:0 0 8px;color:#222222;">{i}. {esc(a["name"])}</h3>')
+        price = (f"${a['price_usd']:.2f}，现在免费" if a["price_usd"]
+                 else "付费应用，现在免费")
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
+        if lang_txt:
+            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
+        h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="https://apps.apple.com/us/app/id{a["id"]}" '
+                 'style="color:#576b95;text-decoration:none;">在 App Store 打开</a></p>')
+        h.append("</div>")
+    if iaps:
+        h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
+                 f"#d4af37;padding-left:10px;margin:28px 0 12px;\">终身内购 0 元兑换（{len(iaps)} 个）</h2>")
+        h.append('<p style="color:#444444;font-size:15px;">'
+                 "这几个不是商店里直接降价到 0 元，而是开发者发的公开兑换码："
+                 "点下面的兑换链接直接进 App Store 兑。每个兑换码一个 Apple "
+                 "账号只能用一次，都是终身解锁、不是订阅，不会续费。</p>")
+        h.append('<p style="color:#444444;font-size:15px;">'
+                 "<strong style=\"color:#222222;\">怎么领：</strong>先装上对应的免费 App，"
+                 "再点该款下面的兑换链接，自动跳到 App Store 兑换页确认就行。"
+                 "不用绑卡，没有试用期。没有兑换链接的款，暂时只能先装 App，"
+                 "等开发者放出公开码。</p>")
+        for i, a in enumerate(iaps, 1):
+            lang_txt = format_langs(languages.get(str(a["id"]), []))
+            img_file = _banner_image(a, asset_dir, iap=True)
+            img_url = _raw_img_url(f"free-apps-{ymd}/{img_file}")
+            h.append('<div style="background:#fafafa;border:1px solid #eeeeee;'
+                     'border-radius:8px;padding:16px;margin:0 0 16px;">')
+            h.append(f'<p style="margin:0 0 12px;"><img src="{img_url}" '
+                     f'alt="{esc(a["name"])}" style="width:100%;display:block;border-radius:6px;"></p>')
+            h.append(f'<h3 style="font-size:17px;margin:0 0 8px;color:#222222;">{i}. {esc(a["name"])}</h3>')
+            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">内购：</strong>{esc(a["iap_name"])}</p>')
+            price = (f"${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
+                     else "兑换码 0 元领")
+            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
+            if a.get("rating"):
+                h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
+            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
+            if lang_txt:
+                h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
+            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
+            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">解锁内容：</strong>{esc(a["unlock"])}</p>')
+            if a.get("redeem_url"):
+                h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="{esc(a["redeem_url"])}" '
+                         'style="color:#576b95;text-decoration:none;">点这里兑换</a></p>')
+            h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="https://apps.apple.com/us/app/id{a["id"]}" '
+                     'style="color:#576b95;text-decoration:none;">在 App Store 打开</a></p>')
+            h.append("</div>")
+    h.append('<hr style="border:none;border-top:1px solid #eeeeee;margin:28px 0 12px;">')
+    h.append('<p style="color:#999999;font-size:13px;text-align:center;">'
+             "限免结束时间苹果不公布，一般 1–3 天，尽快领。</p>")
+    h.append("</div></body></html>")
+    path = os.path.join(DATA_DIR, date, "wechat.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(h))
+    print(f"  wechat.html -> {path}")
     return path
 
 
@@ -560,6 +944,11 @@ def main():
         json.dump(apps_data, f, ensure_ascii=False, indent=1)
     with open(os.path.join(day_data, "languages.json"), "w") as f:
         json.dump(languages, f, ensure_ascii=False, indent=1)
+    # WeChat article (Markdown + paste-ready HTML) and Xiaohongshu note.
+    # File generation only — deploy and Telegram are untouched by them.
+    write_wechat(date, paid, iaps, featured, languages, asset_dir)
+    write_wechat_html(date, paid, iaps, featured, languages, asset_dir)
+    write_xiaohongshu(date, paid, iaps, asset_dir)
     for a in paid + iaps:
         posted[a["id"]] = date
     # A dry run must not pollute the dedup record: tomorrow's real run
