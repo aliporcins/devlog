@@ -103,17 +103,49 @@ def lookup(app_id, country="US"):
     return d["results"][0]
 
 
+_store_page_cache = {}
+
+
 def store_page(app_id):
-    """Fetch the US App Store page HTML (follows the slug redirect)."""
+    """Fetch the US App Store page HTML (follows the slug redirect).
+    Cached per run: has_iap / iap_list / appletv_min_os all read the
+    same page, so one app costs one fetch."""
+    if app_id in _store_page_cache:
+        return _store_page_cache[app_id]
     url = f"https://apps.apple.com/us/app/id{app_id}"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": UA,
                                                    "Accept-Language": "en-US"})
         with urllib.request.urlopen(req, timeout=30) as r:
-            return r.read().decode("utf-8", "replace")
+            html = r.read().decode("utf-8", "replace")
     except Exception as e:
         print(f"  [store] {app_id} page failed: {e}")
-        return ""
+        html = ""
+    _store_page_cache[app_id] = html
+    return html
+
+
+def appletv_min_os(app_id):
+    """tvOS minimum version (e.g. "18.5") if the App Store page's
+    Compatibility section lists Apple TV, else None.
+
+    The iOS lookup record's supportedDevices never includes tvOS
+    (verified: Infuse/Plex list 130+ iOS devices, 0 TV entries), so
+    the store page is the only reliable source. None also covers a
+    failed page fetch (unknown, not "no tvOS" — callers just don't
+    add Apple TV in that case)."""
+    html = store_page(app_id)
+    if not html:
+        return None
+    m = re.search(r"Compatibility</dt>(.*?)</details>", html, re.S)
+    if not m:
+        return None
+    sec = m.group(1)
+    if "<strong>Apple TV</strong>" not in sec:
+        return None
+    v = re.search(r"Apple TV</strong>.*?Requires tvOS ([\d.]+) or later",
+                  sec, re.S)
+    return v.group(1) if v else "?"
 
 
 def has_iap(app_id):
@@ -145,9 +177,12 @@ def iap_list(app_id):
 
 # ---------------- enrichment ----------------
 
-DEVICE_MAP = [("iPhone", "iPhone"), ("iPad", "iPad"), ("iPod", "iPod touch"),
-              ("Mac", "Mac"), ("Watch", "Apple Watch"), ("TV", "Apple TV")]
-DEVICE_ORDER = ["iPhone", "iPad", "iPod touch", "Mac", "Apple TV",
+DEVICE_MAP = [("iPhone", "iPhone"), ("iPad", "iPad"),
+              ("Mac", "Mac"), ("Watch", "Apple Watch"),
+              ("AppleTV", "Apple TV")]
+# iPod touch is intentionally absent: discontinued product; the extra
+# segment makes the platform line wrap mid-phrase on phones.
+DEVICE_ORDER = ["iPhone", "iPad", "Mac", "Apple TV",
                 "Apple Watch"]
 
 
@@ -159,6 +194,38 @@ def format_devices(record):
                 seen.append(label)
     # canonical order (matches the live posting script's devices_for)
     return " / ".join([x for x in DEVICE_ORDER if x in seen]) if seen else ""
+
+
+def format_size(nbytes):
+    """Human-readable app size from fileSizeBytes (str or int, may be
+    missing): '123.4 MB', '1.2 GB' at >= 1 GiB, '456 KB' below 1 MiB.
+    Returns '' when unknown so callers can omit the line."""
+    try:
+        n = int(nbytes)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    if n >= 1024 ** 3:
+        return f"{n / 1024 ** 3:.1f} GB"
+    if n >= 1024 ** 2:
+        return f"{n / 1024 ** 2:.1f} MB"
+    return f"{n / 1024:.1f} KB"
+
+
+def devices_for_app(record, app_id):
+    """format_devices + Apple TV from the store page (see
+    appletv_min_os). All supported devices are listed except iPod
+    touch (discontinued, dropped at the source so the blog and the
+    TG caption agree). Returns (devices_str, min_tvos_or_None)."""
+    devs = format_devices(record)
+    tvos = appletv_min_os(app_id)
+    if tvos is not None:
+        parts = [p.strip() for p in devs.split("/") if p.strip()]
+        if "Apple TV" not in parts:
+            parts.append("Apple TV")
+            devs = " / ".join([x for x in DEVICE_ORDER if x in parts])
+    return devs, tvos
 
 
 # ---------------- categories ----------------
@@ -415,16 +482,21 @@ def _post_paid_app_lines(a, i, asset_dir, ymd, level):
                   asset_dir, f"banner-{a['id']}.jpg"))
               else f"{a['id']}.jpg")
     h = "#" * level
-    return [
+    lines = [
         f"{h} {i}. {a['name']}",
         "",
         f"![{a['name']}](../assets/free-apps-{ymd}/{header})",
         "",
         f"- **原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
         else "- **原价**：付费应用，现在免费",
-        f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})",
-        f"- **支持设备**：{a['devices']}",
+        f"- **设备**：{a['devices']}",
         f"- **最低系统**：iOS {a['min_os']}",
+        f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})",
+    ]
+    size = format_size(a.get("size_bytes"))
+    if size:
+        lines.append(f"- **大小**：{size}")
+    lines += [
         f"- **干什么的**：{a['intro']}",
         f"- **领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
         "",
@@ -433,6 +505,7 @@ def _post_paid_app_lines(a, i, asset_dir, ymd, level):
         f"![{a['name']} 预览 2](../assets/free-apps-{ymd}/shots/{a['id']}-2.jpg)",
         "",
     ]
+    return lines
 
 
 def _post_iap_app_lines(a, i, asset_dir, ymd, level):
@@ -451,12 +524,15 @@ def _post_iap_app_lines(a, i, asset_dir, ymd, level):
         f"- **内购**：{a['iap_name']}",
         f"- **原价**：${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
         else "- **原价**：兑换码 0 元领",
+        f"- **设备**：{a['devices']}",
+        f"- **最低系统**：iOS {a['min_os']}",
         (f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})"
          if a.get("rating") else "- **评分**：暂无评分"),
-        f"- **支持设备**：{a['devices']}",
-        f"- **干什么的**：{a['intro']}",
-        f"- **最低系统**：iOS {a['min_os']}",
     ]
+    size = format_size(a.get("size_bytes"))
+    if size:
+        section_lines.append(f"- **大小**：{size}")
+    section_lines.append(f"- **干什么的**：{a['intro']}")
     if a.get("redeem_url"):
         section_lines.append(
             f"- **兑换链接**：[点这里兑换]({a['redeem_url']})")
@@ -579,10 +655,10 @@ def _wechat_paid_app_lines(a, i, languages, level):
         f"**原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
         else "**原价**：付费应用，现在免费",
         f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）",
-        f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}",
+        f"**设备**：{a['devices']}，最低 iOS {a['min_os']}",
     ]
     if lang_txt:
-        lines.append(f"**支持语言**：{lang_txt}")
+        lines.append(f"**语言**：{lang_txt}")
     lines += [
         f"**简介**：{a['intro']}",
         f"**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
@@ -607,9 +683,9 @@ def _wechat_iap_app_lines(a, i, languages, level):
         lines.append(
             f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）")
     lines.append(
-        f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}")
+        f"**设备**：{a['devices']}，最低 iOS {a['min_os']}")
     if lang_txt:
-        lines.append(f"**支持语言**：{lang_txt}")
+        lines.append(f"**语言**：{lang_txt}")
     lines += [
         f"**简介**：{a['intro']}",
     ]
@@ -796,10 +872,13 @@ def _wechat_html_paid_card(a, i, languages, asset_dir, ymd):
     price = (f"${a['price_usd']:.2f}，现在免费" if a["price_usd"]
              else "付费应用，现在免费")
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
-    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
+    _sz = format_size(a.get("size_bytes"))
+    if _sz:
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">大小：</strong>{_sz}</p>')
     if lang_txt:
-        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">语言：</strong>{esc(lang_txt)}</p>')
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
     h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="https://apps.apple.com/us/app/id{a["id"]}" '
              'style="color:#576b95;text-decoration:none;">在 App Store 打开</a></p>')
@@ -823,11 +902,14 @@ def _wechat_html_iap_card(a, i, languages, asset_dir, ymd):
     price = (f"${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
              else "兑换码 0 元领")
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
     if a.get("rating"):
         h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
-    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
+    _sz = format_size(a.get("size_bytes"))
+    if _sz:
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">大小：</strong>{_sz}</p>')
     if lang_txt:
-        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">语言：</strong>{esc(lang_txt)}</p>')
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
     if a.get("redeem_url"):
         h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="{esc(a["redeem_url"])}" '
@@ -1018,14 +1100,17 @@ def main():
         price = c.get("price_usd")
         if price is None and c.get("price_cny"):
             price = cny_to_usd(c["price_cny"])
+        devs, min_tvos = devices_for_app(rec, app_id)
         paid.append({
             "id": app_id,
             "name": rec.get("trackName", c["name"]),
             "price_usd": price,
             "rating": rating,
             "rating_count": rcount,
-            "devices": format_devices(rec),
+            "devices": devs,
             "min_os": rec.get("minimumOsVersion", "?"),
+            "min_tvos": min_tvos,
+            "size_bytes": rec.get("fileSizeBytes"),
             "genre": rec.get("primaryGenreName", ""),
             "category": category_zh(rec.get("primaryGenreName", "")),
             "intro": chinese_intro(app_id, rec),
@@ -1130,6 +1215,7 @@ def main():
         if code:
             print(f"  promo {app_id} {rec.get('trackName')}: public code "
                   f"from {code_src}")
+        devs, min_tvos = devices_for_app(rec, app_id)
         iaps.append({
             "id": app_id,
             "name": disp_name or rec.get("trackName", ""),
@@ -1139,8 +1225,10 @@ def main():
             "unlock": unlock or f"解锁{iap_name}终身版。",
             "rating": rec.get("averageUserRating") or 0,
             "rating_count": rec.get("userRatingCount") or 0,
-            "devices": format_devices(rec),
+            "devices": devs,
             "min_os": rec.get("minimumOsVersion", "?"),
+            "min_tvos": min_tvos,
+            "size_bytes": rec.get("fileSizeBytes"),
             "genre": rec.get("primaryGenreName", ""),
             "category": category_zh(rec.get("primaryGenreName", "")),
             "intro": chinese_intro(app_id, rec),
