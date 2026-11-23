@@ -1,0 +1,11 @@
+name = "devlog"
+compatibility_date = "2026-10-24"
+pages_build_output_dir = "site"
+
+# Blog gate D1 binding. Account D1 limit (10) is already reached, so no new
+# database could be created; this reuses the blog's existing blog-notepad
+# database under distinct table names (blog_settings / blog_sessions) that
+# do not collide with the notepad worker's notes / sessions tables.
+[[d1_databases]]
+binding = "DB"
+database_id = "b0a79ff2-fce4-4599-a06a-154847435efc"
