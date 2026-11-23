@@ -12,7 +12,18 @@ Usage:
   no public code is listed with just its App Store link.
 - Verifies every paid app is currently free (iTunes Lookup, price 0, US) and
   has NO in-app purchases (App Store page <dt>In-App Purchases</dt> check;
-  iTunes Lookup has no IAP field).
+  iTunes Lookup has no IAP field). It also cross-checks each kept paid
+  app against the AppRaven FREE list (the website's public GetAppsOnSale,
+  no login, no Pro): apps that went free in the last 48h and that no other
+  source caught are added as candidates, and each kept app's price history
+  (GetAppDetail activityList) is verified — an app that launched free and
+  was never paid is dropped as a perennially-free false positive. A
+  missing/inconclusive AppRaven record never blocks an app (fail-open);
+  the counts are logged as [appraven-xcheck].
+- Apps are grouped by App Store category (primaryGenreName mapped to a
+  Chinese name, e.g. Productivity -> 效率工具) in the blog post, the
+  Telegram channel, the WeChat article and the Xiaohongshu note. A lone
+  category is rendered as a flat list (no forced grouping).
 - Writes the blog post (posts/<date>-free-apps.md), downloads icons +
   up to 4 screenshots per app (first 2 in the blog carousel, all stitched
   into a wide channel banner banner-<id>.jpg), writes languages.json +
@@ -150,6 +161,68 @@ def format_devices(record):
     return " / ".join([x for x in DEVICE_ORDER if x in seen]) if seen else ""
 
 
+# ---------------- categories ----------------
+# App Store primaryGenreName -> Chinese category name. Unlisted genres
+# fall through to the English original. Used to group the paid / IAP
+# lists in the blog post, the Telegram channel, the WeChat article
+# (Markdown + HTML) and the Xiaohongshu note.
+GENRE_ZH = {
+    "Productivity": "效率工具",
+    "Games": "游戏",
+    "Photo & Video": "摄影与录像",
+    "Health & Fitness": "健康健美",
+    "Education": "教育",
+    "Utilities": "工具",
+    "Entertainment": "娱乐",
+    "Music": "音乐",
+    "Lifestyle": "生活",
+    "Finance": "财务",
+    "Sports": "体育",
+    "News": "新闻",
+    "Reference": "参考",
+    "Travel": "旅行",
+    "Weather": "天气",
+    "Business": "商务",
+    "Medical": "医疗",
+    "Food & Drink": "美食佳饮",
+    "Shopping": "购物",
+    "Social Networking": "社交",
+    "Navigation": "导航",
+    "Books": "图书",
+    "Magazines & Newspapers": "杂志报刊",
+    "Catalogs": "商品目录",
+    "Developer Tools": "开发者工具",
+    "Graphics & Design": "图形设计",
+}
+
+
+def category_zh(genre_en):
+    """Chinese category name for an App Store primaryGenreName."""
+    if not genre_en:
+        return ""
+    return GENRE_ZH.get(genre_en, genre_en)
+
+
+def group_by_category(apps):
+    """Group apps by their Chinese category.
+
+    Returns [(category, [apps]), ...] in first-appearance order (the
+    input list is price-sorted, so a category surfaces at the position
+    of its priciest app). Apps inside a group keep input order.
+    Returns [] when the input is empty, and a single group when every
+    app shares one category — the callers decide whether to render
+    groups or a flat list (a lone category is rendered flat)."""
+    groups = {}
+    order = []
+    for a in apps:
+        cat = a.get("category") or ""
+        if cat not in groups:
+            groups[cat] = []
+            order.append(cat)
+        groups[cat].append(a)
+    return [(c, groups[c]) for c in order]
+
+
 def first_sentence(text, max_len=70):
     """First sentence of a description, capped at ~max_len chars.
 
@@ -269,8 +342,11 @@ def _load_cover_font(candidates, size):
             continue
         try:
             if path.endswith(".ttc"):
-                return ImageFont.truetype(path, size, index=0)
-            return ImageFont.truetype(path, size)
+                f = ImageFont.truetype(path, size, index=0)
+            else:
+                f = ImageFont.truetype(path, size)
+            print(f"  [cover] font: {path}")
+            return f
         except Exception:
             continue
     return None
@@ -291,6 +367,8 @@ def make_cover(icon_paths, out_path, date_str, n_apps):
     d.rectangle([0, 0, W, 10], fill=(212, 175, 55))
     font_big = _load_cover_font(CJK_FONT_BOLD, 64)
     if font_big is None:
+        print("  [cover] WARNING: no CJK font found, Chinese will render "
+              "as boxes (DejaVu fallback)")
         try:
             font_big = ImageFont.truetype(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
@@ -298,6 +376,8 @@ def make_cover(icon_paths, out_path, date_str, n_apps):
             font_big = ImageFont.load_default()
     font_small = _load_cover_font(CJK_FONT_REGULAR, 36)
     if font_small is None:
+        print("  [cover] WARNING: no CJK font found, Chinese will render "
+              "as boxes (DejaVu fallback)")
         try:
             font_small = ImageFont.truetype(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
@@ -322,6 +402,72 @@ def make_cover(icon_paths, out_path, date_str, n_apps):
 
 def esc(s):
     return s.replace("|", "｜")
+
+
+def _post_paid_app_lines(a, i, asset_dir, ymd, level):
+    """Markdown lines for one paid app in the blog post.
+
+    level 3 = flat list (### N. Name), level 4 = inside a category group
+    (#### N. Name). The header image is the same wide banner as the
+    channel post; fall back to the icon when it could not be built."""
+    header = (f"banner-{a['id']}.jpg"
+              if os.path.isfile(os.path.join(
+                  asset_dir, f"banner-{a['id']}.jpg"))
+              else f"{a['id']}.jpg")
+    h = "#" * level
+    return [
+        f"{h} {i}. {a['name']}",
+        "",
+        f"![{a['name']}](../assets/free-apps-{ymd}/{header})",
+        "",
+        f"- **原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
+        else "- **原价**：付费应用，现在免费",
+        f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})",
+        f"- **支持设备**：{a['devices']}",
+        f"- **最低系统**：iOS {a['min_os']}",
+        f"- **干什么的**：{a['intro']}",
+        f"- **领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
+        "",
+        "!carousel",
+        f"![{a['name']} 预览 1](../assets/free-apps-{ymd}/shots/{a['id']}-1.jpg)",
+        f"![{a['name']} 预览 2](../assets/free-apps-{ymd}/shots/{a['id']}-2.jpg)",
+        "",
+    ]
+
+
+def _post_iap_app_lines(a, i, asset_dir, ymd, level):
+    """Markdown lines for one IAP promo in the blog post (level 3 flat,
+    level 4 inside a category group)."""
+    header = (f"banner-{a['id']}.jpg"
+              if os.path.isfile(os.path.join(
+                  asset_dir, f"banner-{a['id']}.jpg"))
+              else f"iap/{a['id']}.jpg")
+    h = "#" * level
+    section_lines = [
+        f"{h} {i}. {a['name']}",
+        "",
+        f"![{a['name']}](../assets/free-apps-{ymd}/{header})",
+        "",
+        f"- **内购**：{a['iap_name']}",
+        f"- **原价**：${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
+        else "- **原价**：兑换码 0 元领",
+        (f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})"
+         if a.get("rating") else "- **评分**：暂无评分"),
+        f"- **支持设备**：{a['devices']}",
+        f"- **干什么的**：{a['intro']}",
+        f"- **最低系统**：iOS {a['min_os']}",
+    ]
+    if a.get("redeem_url"):
+        section_lines.append(
+            f"- **兑换链接**：[点这里兑换]({a['redeem_url']})")
+    section_lines += [
+        f"- **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
+        "!carousel",
+        f"![预览 1](../assets/free-apps-{ymd}/iap-shots/{a['id']}-1.jpg)",
+        f"![预览 2](../assets/free-apps-{ymd}/iap-shots/{a['id']}-2.jpg)",
+        "",
+    ]
+    return section_lines
 
 
 def write_post(date, paid, iaps, featured, asset_dir):
@@ -356,37 +502,29 @@ def write_post(date, paid, iaps, featured, asset_dir):
         "",
     ]
     for i, a in enumerate(featured, 1):
+        # price_usd can be None (AppRaven-sourced apps carry no price);
+        # the per-app section already falls back to '付费应用', do the
+        # same here instead of formatting None (TypeError).
+        fprice = (f"${a['price_usd']:.2f}" if a["price_usd"]
+                  else "付费应用")
         lines.append(
             f"{i}. **{a['name']}** — 评分 {a['rating']:.1f}，原价 "
-            f"${a['price_usd']:.2f}，{a['intro']}")
+            f"{fprice}，{a['intro']}")
     lines += ["", "", f"## 付费应用限时免费（{len(paid)} 款）", "",
               "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
               ""]
-    for i, a in enumerate(paid, 1):
-        # Header image: the same wide banner as the channel post; fall
-        # back to the icon when the banner could not be built.
-        header = (f"banner-{a['id']}.jpg"
-                  if os.path.isfile(os.path.join(
-                      asset_dir, f"banner-{a['id']}.jpg"))
-                  else f"{a['id']}.jpg")
-        lines += [
-            f"### {i}. {a['name']}",
-            "",
-            f"![{a['name']}](../assets/free-apps-{ymd}/{header})",
-            "",
-            f"- **原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
-            else "- **原价**：付费应用，现在免费",
-            f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})",
-            f"- **支持设备**：{a['devices']}",
-            f"- **最低系统**：iOS {a['min_os']}",
-            f"- **干什么的**：{a['intro']}",
-            f"- **领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
-            "",
-            "!carousel",
-            f"![{a['name']} 预览 1](../assets/free-apps-{ymd}/shots/{a['id']}-1.jpg)",
-            f"![{a['name']} 预览 2](../assets/free-apps-{ymd}/shots/{a['id']}-2.jpg)",
-            "",
-        ]
+    # Category groups (### <category> + #### apps) when 2+ categories are
+    # present; a lone category stays a flat list (### apps, as before).
+    paid_groups = group_by_category(paid)
+    grouped_paid = len(paid_groups) >= 2
+    if grouped_paid:
+        for cat, apps in paid_groups:
+            lines += [f"### {cat}（{len(apps)} 款）", ""]
+            for i, a in enumerate(apps, 1):
+                lines += _post_paid_app_lines(a, i, asset_dir, ymd, 4)
+    else:
+        for i, a in enumerate(paid, 1):
+            lines += _post_paid_app_lines(a, i, asset_dir, ymd, 3)
     if iaps:
         lines += [
             f"## 终身内购 0 元兑换（{len(iaps)} 个）",
@@ -400,37 +538,16 @@ def write_post(date, paid, iaps, featured, asset_dir):
             "没有兑换链接的款，暂时只能先装 App，等开发者放出公开码。",
             "",
         ]
-        for i, a in enumerate(iaps, 1):
-            header = (f"banner-{a['id']}.jpg"
-                      if os.path.isfile(os.path.join(
-                          asset_dir, f"banner-{a['id']}.jpg"))
-                      else f"iap/{a['id']}.jpg")
-            section_lines = [
-                f"### {i}. {a['name']}",
-                "",
-                f"![{a['name']}](../assets/free-apps-{ymd}/{header})",
-                "",
-                f"- **内购**：{a['iap_name']}",
-                f"- **原价**：${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
-                else "- **原价**：兑换码 0 元领",
-                (f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})"
-                 if a.get("rating") else "- **评分**：暂无评分"),
-                f"- **支持设备**：{a['devices']}",
-                f"- **干什么的**：{a['intro']}",
-                f"- **解锁内容**：{a['unlock']}",
-                f"- **最低系统**：iOS {a['min_os']}",
-            ]
-            if a.get("redeem_url"):
-                section_lines.append(
-                    f"- **兑换链接**：[点这里兑换]({a['redeem_url']})")
-            section_lines += [
-                f"- **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
-                "!carousel",
-                f"![预览 1](../assets/free-apps-{ymd}/iap-shots/{a['id']}-1.jpg)",
-                f"![预览 2](../assets/free-apps-{ymd}/iap-shots/{a['id']}-2.jpg)",
-                "",
-            ]
-            lines += section_lines
+        iap_groups = group_by_category(iaps)
+        grouped_iap = len(iap_groups) >= 2
+        if grouped_iap:
+            for cat, apps in iap_groups:
+                lines += [f"### {cat}（{len(apps)} 个）", ""]
+                for i, a in enumerate(apps, 1):
+                    lines += _post_iap_app_lines(a, i, asset_dir, ymd, 4)
+        else:
+            for i, a in enumerate(iaps, 1):
+                lines += _post_iap_app_lines(a, i, asset_dir, ymd, 3)
     lines += ["---", "", "限免结束时间苹果不公布，一般 1–3 天，尽快领。", ""]
     path = os.path.join(POSTS_DIR, f"{date}-free-apps.md")
     with open(path, "w", encoding="utf-8") as f:
@@ -449,6 +566,60 @@ def _banner_image(a, asset_dir, iap=False):
     if iap:
         return f"iap/{a['id']}.jpg"
     return f"{a['id']}.jpg"
+
+
+def _wechat_paid_app_lines(a, i, languages, level):
+    """Markdown lines for one paid app in wechat.md (level 3 flat,
+    level 4 inside a category group)."""
+    lang_txt = format_langs(languages.get(str(a["id"]), []))
+    h = "#" * level
+    lines = [
+        f"{h} {i}. {a['name']}",
+        "",
+        f"**原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
+        else "**原价**：付费应用，现在免费",
+        f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）",
+        f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}",
+    ]
+    if lang_txt:
+        lines.append(f"**支持语言**：{lang_txt}")
+    lines += [
+        f"**简介**：{a['intro']}",
+        f"**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
+        "",
+    ]
+    return lines
+
+
+def _wechat_iap_app_lines(a, i, languages, level):
+    """Markdown lines for one IAP promo in wechat.md (level 3 flat,
+    level 4 inside a category group)."""
+    lang_txt = format_langs(languages.get(str(a["id"]), []))
+    h = "#" * level
+    lines = [
+        f"{h} {i}. {a['name']}",
+        "",
+        f"**内购**：{a['iap_name']}",
+        f"**原价**：${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
+        else "**原价**：兑换码 0 元领",
+    ]
+    if a.get("rating"):
+        lines.append(
+            f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）")
+    lines.append(
+        f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}")
+    if lang_txt:
+        lines.append(f"**支持语言**：{lang_txt}")
+    lines += [
+        f"**简介**：{a['intro']}",
+    ]
+    if a.get("redeem_url"):
+        lines.append(f"**兑换链接**：[点这里兑换]({a['redeem_url']})")
+    lines += [
+        f"**App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
+        "",
+    ]
+    return lines
 
 
 def write_wechat(date, paid, iaps, featured, languages, asset_dir):
@@ -481,23 +652,16 @@ def write_wechat(date, paid, iaps, featured, languages, asset_dir):
     lines += [f"## 付费应用限时免费（{len(paid)} 款）", "",
               "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
               ""]
-    for i, a in enumerate(paid, 1):
-        lang_txt = format_langs(languages.get(str(a["id"]), []))
-        lines += [
-            f"### {i}. {a['name']}",
-            "",
-            f"**原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
-            else "**原价**：付费应用，现在免费",
-            f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）",
-            f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}",
-        ]
-        if lang_txt:
-            lines.append(f"**支持语言**：{lang_txt}")
-        lines += [
-            f"**简介**：{a['intro']}",
-            f"**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
-            "",
-        ]
+    wechat_paid_groups = group_by_category(paid)
+    grouped = len(wechat_paid_groups) >= 2
+    if grouped:
+        for cat, apps in wechat_paid_groups:
+            lines += [f"### {cat}（{len(apps)} 款）", ""]
+            for i, a in enumerate(apps, 1):
+                lines += _wechat_paid_app_lines(a, i, languages, 4)
+    else:
+        for i, a in enumerate(paid, 1):
+            lines += _wechat_paid_app_lines(a, i, languages, 3)
     if iaps:
         lines += [
             f"## 终身内购 0 元兑换（{len(iaps)} 个）",
@@ -511,32 +675,16 @@ def write_wechat(date, paid, iaps, featured, languages, asset_dir):
             "没有兑换链接的款，暂时只能先装 App，等开发者放出公开码。",
             "",
         ]
-        for i, a in enumerate(iaps, 1):
-            lang_txt = format_langs(languages.get(str(a["id"]), []))
-            lines += [
-                f"### {i}. {a['name']}",
-                "",
-                f"**内购**：{a['iap_name']}",
-                f"**原价**：${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
-                else "**原价**：兑换码 0 元领",
-            ]
-            if a.get("rating"):
-                lines.append(
-                    f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）")
-            lines.append(
-                f"**支持设备**：{a['devices']}，最低 iOS {a['min_os']}")
-            if lang_txt:
-                lines.append(f"**支持语言**：{lang_txt}")
-            lines += [
-                f"**简介**：{a['intro']}",
-                f"**解锁内容**：{a['unlock']}",
-            ]
-            if a.get("redeem_url"):
-                lines.append(f"**兑换链接**：[点这里兑换]({a['redeem_url']})")
-            lines += [
-                f"**App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
-                "",
-            ]
+        wechat_iap_groups = group_by_category(iaps)
+        grouped_iap = len(wechat_iap_groups) >= 2
+        if grouped_iap:
+            for cat, apps in wechat_iap_groups:
+                lines += [f"### {cat}（{len(apps)} 个）", ""]
+                for i, a in enumerate(apps, 1):
+                    lines += _wechat_iap_app_lines(a, i, languages, 4)
+        else:
+            for i, a in enumerate(iaps, 1):
+                lines += _wechat_iap_app_lines(a, i, languages, 3)
     lines += ["---", "", "限免结束时间苹果不公布，一般 1–3 天，尽快领。", ""]
     path = os.path.join(DATA_DIR, date, "wechat.md")
     with open(path, "w", encoding="utf-8") as f:
@@ -561,19 +709,42 @@ def write_xiaohongshu(date, paid, iaps, asset_dir):
         "在 App Store 搜下面每个应用的名字，点“获取”就行，只点获取，别买内购。",
         "",
     ]
-    for i, a in enumerate(paid, 1):
-        price = (f"原价 ${a['price_usd']:.2f} → 免费" if a["price_usd"]
-                 else "付费应用 → 免费")
-        lines.append(
-            f"{i}. {a['name']}：{a['intro']}（{price}，评分 {a['rating']:.1f}）")
+    xhs_paid_groups = group_by_category(paid)
+    if len(xhs_paid_groups) >= 2:
+        for cat, apps in xhs_paid_groups:
+            lines += [f"【{cat}】", ""]
+            for i, a in enumerate(apps, 1):
+                price = (f"原价 ${a['price_usd']:.2f} → 免费" if a["price_usd"]
+                         else "付费应用 → 免费")
+                lines.append(
+                    f"{i}. {a['name']}：{a['intro']}（{price}，评分 {a['rating']:.1f}）")
+            lines.append("")
+    else:
+        for i, a in enumerate(paid, 1):
+            price = (f"原价 ${a['price_usd']:.2f} → 免费" if a["price_usd"]
+                     else "付费应用 → 免费")
+            lines.append(
+                f"{i}. {a['name']}：{a['intro']}（{price}，评分 {a['rating']:.1f}）")
     if iaps:
         lines += ["", "终身内购 0 元兑：", ""]
-        for i, a in enumerate(iaps, 1):
-            price = (f"原价 ${a['iap_price']:.2f}" if a.get("iap_price")
-                     else "原价不详")
-            lines.append(
-                f"{i}. {a['name']}（{a['iap_name']}，{price}，兑换码免费领）："
-                f"{a['intro']}")
+        xhs_iap_groups = group_by_category(iaps)
+        if len(xhs_iap_groups) >= 2:
+            for cat, apps in xhs_iap_groups:
+                lines += [f"【{cat}】", ""]
+                for i, a in enumerate(apps, 1):
+                    price = (f"原价 ${a['iap_price']:.2f}" if a.get("iap_price")
+                             else "原价不详")
+                    lines.append(
+                        f"{i}. {a['name']}（{a['iap_name']}，{price}，兑换码免费领）："
+                        f"{a['intro']}")
+                lines.append("")
+        else:
+            for i, a in enumerate(iaps, 1):
+                price = (f"原价 ${a['iap_price']:.2f}" if a.get("iap_price")
+                         else "原价不详")
+                lines.append(
+                    f"{i}. {a['name']}（{a['iap_name']}，{price}，兑换码免费领）："
+                    f"{a['intro']}")
         lines += [
             "",
             "内购兑换方式：先装上 App，再进 App Store 按提示兑换（兑换码免费领）。",
@@ -608,6 +779,63 @@ RAW_GITHUB_BASE = "https://raw.githubusercontent.com/aliporcins/devlog/main"
 def _raw_img_url(asset_rel):
     """Absolute raw-GitHub URL for an asset/ path (WeChat-fetchable)."""
     return f"{RAW_GITHUB_BASE}/assets/{asset_rel}"
+
+
+def _wechat_html_paid_card(a, i, languages, asset_dir, ymd):
+    """One paid app's card <div> for wechat.html."""
+    esc = html.escape
+    lang_txt = format_langs(languages.get(str(a["id"]), []))
+    img_file = _banner_image(a, asset_dir)
+    img_url = _raw_img_url(f"free-apps-{ymd}/{img_file}")
+    h = []
+    h.append('<div style="background:#fafafa;border:1px solid #eeeeee;'
+             'border-radius:8px;padding:16px;margin:0 0 16px;">')
+    h.append(f'<p style="margin:0 0 12px;"><img src="{img_url}" '
+             f'alt="{esc(a["name"])}" style="width:100%;display:block;border-radius:6px;"></p>')
+    h.append(f'<h3 style="font-size:17px;margin:0 0 8px;color:#222222;">{i}. {esc(a["name"])}</h3>')
+    price = (f"${a['price_usd']:.2f}，现在免费" if a["price_usd"]
+             else "付费应用，现在免费")
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
+    if lang_txt:
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="https://apps.apple.com/us/app/id{a["id"]}" '
+             'style="color:#576b95;text-decoration:none;">在 App Store 打开</a></p>')
+    h.append("</div>")
+    return h
+
+
+def _wechat_html_iap_card(a, i, languages, asset_dir, ymd):
+    """One IAP promo's card <div> for wechat.html."""
+    esc = html.escape
+    lang_txt = format_langs(languages.get(str(a["id"]), []))
+    img_file = _banner_image(a, asset_dir, iap=True)
+    img_url = _raw_img_url(f"free-apps-{ymd}/{img_file}")
+    h = []
+    h.append('<div style="background:#fafafa;border:1px solid #eeeeee;'
+             'border-radius:8px;padding:16px;margin:0 0 16px;">')
+    h.append(f'<p style="margin:0 0 12px;"><img src="{img_url}" '
+             f'alt="{esc(a["name"])}" style="width:100%;display:block;border-radius:6px;"></p>')
+    h.append(f'<h3 style="font-size:17px;margin:0 0 8px;color:#222222;">{i}. {esc(a["name"])}</h3>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">内购：</strong>{esc(a["iap_name"])}</p>')
+    price = (f"${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
+             else "兑换码 0 元领")
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
+    if a.get("rating"):
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
+    if lang_txt:
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
+    if a.get("redeem_url"):
+        h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="{esc(a["redeem_url"])}" '
+                 'style="color:#576b95;text-decoration:none;">点这里兑换</a></p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="https://apps.apple.com/us/app/id{a["id"]}" '
+             'style="color:#576b95;text-decoration:none;">在 App Store 打开</a></p>')
+    h.append("</div>")
+    return h
 
 
 def write_wechat_html(date, paid, iaps, featured, languages, asset_dir):
@@ -654,26 +882,16 @@ def write_wechat_html(date, paid, iaps, featured, languages, asset_dir):
              f"#d4af37;padding-left:10px;margin:28px 0 12px;\">付费应用限时免费（{len(paid)} 款）</h2>")
     h.append('<p style="color:#444444;font-size:15px;">'
              "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。</p>")
-    for i, a in enumerate(paid, 1):
-        lang_txt = format_langs(languages.get(str(a["id"]), []))
-        img_file = _banner_image(a, asset_dir)
-        img_url = _raw_img_url(f"free-apps-{ymd}/{img_file}")
-        h.append('<div style="background:#fafafa;border:1px solid #eeeeee;'
-                 'border-radius:8px;padding:16px;margin:0 0 16px;">')
-        h.append(f'<p style="margin:0 0 12px;"><img src="{img_url}" '
-                 f'alt="{esc(a["name"])}" style="width:100%;display:block;border-radius:6px;"></p>')
-        h.append(f'<h3 style="font-size:17px;margin:0 0 8px;color:#222222;">{i}. {esc(a["name"])}</h3>')
-        price = (f"${a['price_usd']:.2f}，现在免费" if a["price_usd"]
-                 else "付费应用，现在免费")
-        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
-        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
-        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
-        if lang_txt:
-            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
-        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
-        h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="https://apps.apple.com/us/app/id{a["id"]}" '
-                 'style="color:#576b95;text-decoration:none;">在 App Store 打开</a></p>')
-        h.append("</div>")
+    html_paid_groups = group_by_category(paid)
+    if len(html_paid_groups) >= 2:
+        for cat, apps in html_paid_groups:
+            h.append('<h3 style="font-size:16px;color:#222222;margin:20px 0 12px;">'
+                     f"{html.escape(cat)}（{len(apps)} 款）</h3>")
+            for i, a in enumerate(apps, 1):
+                h += _wechat_html_paid_card(a, i, languages, asset_dir, ymd)
+    else:
+        for i, a in enumerate(paid, 1):
+            h += _wechat_html_paid_card(a, i, languages, asset_dir, ymd)
     if iaps:
         h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
                  f"#d4af37;padding-left:10px;margin:28px 0 12px;\">终身内购 0 元兑换（{len(iaps)} 个）</h2>")
@@ -686,32 +904,16 @@ def write_wechat_html(date, paid, iaps, featured, languages, asset_dir):
                  "再点该款下面的兑换链接，自动跳到 App Store 兑换页确认就行。"
                  "不用绑卡，没有试用期。没有兑换链接的款，暂时只能先装 App，"
                  "等开发者放出公开码。</p>")
-        for i, a in enumerate(iaps, 1):
-            lang_txt = format_langs(languages.get(str(a["id"]), []))
-            img_file = _banner_image(a, asset_dir, iap=True)
-            img_url = _raw_img_url(f"free-apps-{ymd}/{img_file}")
-            h.append('<div style="background:#fafafa;border:1px solid #eeeeee;'
-                     'border-radius:8px;padding:16px;margin:0 0 16px;">')
-            h.append(f'<p style="margin:0 0 12px;"><img src="{img_url}" '
-                     f'alt="{esc(a["name"])}" style="width:100%;display:block;border-radius:6px;"></p>')
-            h.append(f'<h3 style="font-size:17px;margin:0 0 8px;color:#222222;">{i}. {esc(a["name"])}</h3>')
-            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">内购：</strong>{esc(a["iap_name"])}</p>')
-            price = (f"${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
-                     else "兑换码 0 元领")
-            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
-            if a.get("rating"):
-                h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
-            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
-            if lang_txt:
-                h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">支持语言：</strong>{esc(lang_txt)}</p>')
-            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">简介：</strong>{esc(a["intro"])}</p>')
-            h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">解锁内容：</strong>{esc(a["unlock"])}</p>')
-            if a.get("redeem_url"):
-                h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="{esc(a["redeem_url"])}" '
-                         'style="color:#576b95;text-decoration:none;">点这里兑换</a></p>')
-            h.append(f'<p style="margin:6px 0;font-size:15px;"><a href="https://apps.apple.com/us/app/id{a["id"]}" '
-                     'style="color:#576b95;text-decoration:none;">在 App Store 打开</a></p>')
-            h.append("</div>")
+        html_iap_groups = group_by_category(iaps)
+        if len(html_iap_groups) >= 2:
+            for cat, apps in html_iap_groups:
+                h.append('<h3 style="font-size:16px;color:#222222;margin:20px 0 12px;">'
+                         f"{html.escape(cat)}（{len(apps)} 个）</h3>")
+                for i, a in enumerate(apps, 1):
+                    h += _wechat_html_iap_card(a, i, languages, asset_dir, ymd)
+        else:
+            for i, a in enumerate(iaps, 1):
+                h += _wechat_html_iap_card(a, i, languages, asset_dir, ymd)
     h.append('<hr style="border:none;border-top:1px solid #eeeeee;margin:28px 0 12px;">')
     h.append('<p style="color:#999999;font-size:13px;text-align:center;">'
              "限免结束时间苹果不公布，一般 1–3 天，尽快领。</p>")
@@ -762,6 +964,33 @@ def main():
     promos = sc.scrape_apphunt()
     print(f"candidates: {len(candidates)}, promos: {len(promos)}")
 
+    # 1b. AppRaven cross-check — discovery. The AppRaven FREE list
+    # (website's public GetAppsOnSale, rareOnly=False, no login, no Pro)
+    # is fetched once; apps that went free in the last 48h and that no
+    # other source caught are appended as candidates so they flow through
+    # the same iTunes verification below. The same sale map is reused in
+    # step 2b to verify each kept app's price history.
+    appraven_sale, appraven_recent = {}, []
+    try:
+        appraven_sale, appraven_recent = sc.appraven_sale_list()
+    except Exception as e:
+        print(f"  [appraven-xcheck] sale list error: {e}; cross-check "
+              f"skipped (fail-open)")
+    cand_ids = {c["id"] for c in candidates}
+    xcheck_added = 0
+    for app_id in appraven_recent:
+        if app_id not in cand_ids:
+            sale = appraven_sale.get(app_id, {})
+            candidates.append({
+                "id": app_id,
+                "name": sale.get("title", ""),
+                "source": "appraven-xcheck",
+            })
+            cand_ids.add(app_id)
+            xcheck_added += 1
+    print(f"  [appraven-xcheck] added {xcheck_added} app(s) from the "
+          f"AppRaven free list that other sources missed")
+
     # 2. verify + enrich paid apps
     print("-- verify paid apps --")
     paid, languages, apps_data = [], {}, {}
@@ -797,6 +1026,8 @@ def main():
             "rating_count": rcount,
             "devices": format_devices(rec),
             "min_os": rec.get("minimumOsVersion", "?"),
+            "genre": rec.get("primaryGenreName", ""),
+            "category": category_zh(rec.get("primaryGenreName", "")),
             "intro": chinese_intro(app_id, rec),
             "icon_url": rec.get("artworkUrl512", ""),
             "shots": (rec.get("screenshotUrls") or [])[:4],
@@ -809,6 +1040,46 @@ def main():
     paid.sort(key=lambda a: ((a["price_usd"] or 0), a["rating"],
                              a["rating_count"]), reverse=True)
     print(f"paid apps kept: {len(paid)}")
+
+    # 2b. AppRaven cross-check — price-history verification. For every
+    # kept paid app that AppRaven tracks, its price history is checked:
+    # "confirmed" (a DROP to tier 0) keeps it; "always_free" (launched
+    # free, never paid) is a false positive and is dropped; "unknown"
+    # (not in AppRaven's database, call failed, or inconclusive history)
+    # keeps it — fail-open, never block on missing data. Apps AppRaven
+    # does not list at all are kept and logged as uncorroborated.
+    xcheck_confirmed = xcheck_blocked = xcheck_unknown = xcheck_nolist = 0
+    kept_paid = []
+    for a in paid:
+        sale = appraven_sale.get(a["id"])
+        if not sale:
+            xcheck_nolist += 1
+            kept_paid.append(a)
+            continue
+        verdict = "unknown"
+        try:
+            verdict = sc.appraven_price_verdict(sale.get("internal_id"))
+        except Exception as e:
+            print(f"  [appraven-xcheck] verdict error for {a['id']}: {e}")
+        if verdict == "always_free":
+            xcheck_blocked += 1
+            print(f"  [appraven-xcheck] BLOCKED {a['name']} ({a['id']}): "
+                  f"always free per AppRaven price history "
+                  f"(launched free, never paid)")
+            continue
+        if verdict == "confirmed":
+            xcheck_confirmed += 1
+        else:
+            xcheck_unknown += 1
+        kept_paid.append(a)
+        time.sleep(0.2)
+    if xcheck_blocked:
+        paid = kept_paid
+        print(f"paid apps after cross-check: {len(paid)} "
+              f"(blocked {xcheck_blocked})")
+    print(f"  [appraven-xcheck] verified: confirmed={xcheck_confirmed} "
+          f"blocked={xcheck_blocked} unknown={xcheck_unknown} "
+          f"not-in-appraven-list={xcheck_nolist}")
 
     # 3. enrich IAP promos
     print("-- verify IAP promos --")
@@ -870,6 +1141,8 @@ def main():
             "rating_count": rec.get("userRatingCount") or 0,
             "devices": format_devices(rec),
             "min_os": rec.get("minimumOsVersion", "?"),
+            "genre": rec.get("primaryGenreName", ""),
+            "category": category_zh(rec.get("primaryGenreName", "")),
             "intro": chinese_intro(app_id, rec),
             "icon_url": rec.get("artworkUrl512", ""),
             "shots": (rec.get("screenshotUrls") or [])[:4],
