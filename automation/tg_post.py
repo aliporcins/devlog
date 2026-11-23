@@ -359,16 +359,14 @@ def iap_caption(a, lang_txt, redeem_url=""):
     No AppHunt links are ever sent. The '解锁内容' line was removed
     (it only repeated the IAP name); the app intro ('📝 软件简介',
     from the parsed '干什么的' field) takes its place, same format as
-    paid posts. Dedup (2026-11-24): the IAP name already contains the
-    app name, so there is NO separate 软件名称 line — the first line
-    is 🎁 内购：<iap>; the price is labelled 内购价格 (it is the IAP
-    price, not the app price). Category is a line inside the caption.
-    Fallback: when an IAP has no iap name, the app name is used."""
-    lines = ["#终身内购", ""]
-    if a.get("iap"):
-        lines.append(f"🎁 内购：{esc(a['iap'])}")
-    else:
-        lines.append(f"📁 软件名称：{esc(a['name'])}")
+    paid posts. Lead line (2026-11-24): the APP name, not the IAP
+    name — the IAP name is almost always the app name plus a suffix
+    (Pro/Premium), so it adds nothing; the app name is what readers
+    recognise and search for, and the redeem link already points at
+    the exact IAP. The price is labelled 内购价格 (it is the IAP
+    price, not the app price). Category is a line inside the caption."""
+    lines = ["#终身内购", "",
+             f"📁 软件名称：{esc(a['name'])}"]
     if a.get("category"):
         lines.append(f"📂 分类：{esc(a['category'])}")
     plat = platform_line(a)
