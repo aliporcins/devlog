@@ -210,7 +210,7 @@ def _parse_paid_app(sec):
     size = re.search(r"\*\*大小\*\*：([^\n]+)", sec)
     devices = re.search(r"\*\*(?:支持)?设备\*\*：([^\n]+)", sec)
     min_os = re.search(r"\*\*最低系统\*\*：iOS ([^\n]+)", sec)
-    desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
+    desc = re.search(r"\*\*简介\*\*：([^\n]+)", sec)
     link = re.search(r"\[在 App Store 打开\]\(([^)]+)\)", sec)
     return {
         "name": name,
@@ -236,7 +236,7 @@ def _parse_iap_app(sec):
     rating = re.search(r"\*\*评分\*\*：★([^\n]+)", sec)
     size = re.search(r"\*\*大小\*\*：([^\n]+)", sec)
     devices = re.search(r"\*\*(?:支持)?设备\*\*：([^\n]+)", sec)
-    desc = re.search(r"\*\*干什么的\*\*：([^\n]+)", sec)
+    desc = re.search(r"\*\*简介\*\*：([^\n]+)", sec)
     unlock = re.search(r"\*\*解锁内容\*\*：([^\n]+)", sec)
     left = re.search(r"\*\*剩余兑换码\*\*：([^\n]+)", sec)
     min_os = re.search(r"\*\*最低系统\*\*：iOS ([^\n]+)", sec)
@@ -290,7 +290,7 @@ def _parse_section_apps(sec_text, is_iap):
 
 def parse_post(md):
     """Return (featured_names, paid_apps, iap_apps) — same format as the
-    2026-11-23 post (IAP sections also carry 评分/设备/干什么的).
+    2026-11-23 post (IAP sections also carry 评分/设备/简介).
     Each app dict also carries 'category' ('' when the post is flat)."""
     featured = []
     m = re.search(r"## 今日极力推荐(.*?)(?=\n## |\Z)", md, re.S)
@@ -399,7 +399,7 @@ def iap_caption(a, lang_txt, redeem_url=""):
     &id=..&code=..); when empty the claim line is omitted entirely.
     No AppHunt links are ever sent. The '解锁内容' line was removed
     (it only repeated the IAP name); the app intro ('📝 简介',
-    from the parsed '干什么的' field) takes its place, same format as
+    from the parsed '简介' field) takes its place, same format as
     paid posts. Lead line (2026-11-24): the APP name, not the IAP
     name — the IAP name is almost always the app name plus a suffix
     (Pro/Premium), so it adds nothing; the app name is what readers
