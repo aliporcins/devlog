@@ -355,8 +355,11 @@ def platform_line(a):
 def price_line(orig, free_word, label="价格"):
     """价格：<s>$0.99</s> → <b>0 元</b> (free_word carries the HTML).
     IAP posts pass label="内购价格" — $9.99 is the IAP price, not the
-    app price."""
-    if orig:
+    app price. Only a dollar amount gets struck through: when the
+    original price is unknown the blog writes a word instead
+    ("付费应用" / "兑换码 0 元领"), and striking that through reads
+    as "~~付费应用~~ → 0 元". Unknown price shows just the free word."""
+    if orig and orig.startswith("$"):
         return f"💰 {label}：<s>{esc(orig)}</s> → {free_word}"
     return f"💰 {label}：{free_word}"
 
