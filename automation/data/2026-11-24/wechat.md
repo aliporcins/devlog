@@ -1,164 +1,21 @@
-# 今日限免｜15 款付费 App 限时免费
+# 今日限免｜1 款付费 App 限时免费
 
 封面图：assets/free-apps-20261124/cover.jpg（在公众号编辑器里把这张图设为封面）
 
-今天 15 款付费 App 限时免费，原价加起来约 15 美元；另外还有 8 个终身内购可用兑换码 0 元领，原价加起来约 158 美元。限免随时可能结束，看到喜欢的就领。
+今天 1 款付费 App 限时免费，原价加起来约 0 美元；另外还有 8 个终身内购可用兑换码 0 元领，原价加起来约 158 美元。限免随时可能结束，看到喜欢的就领。
 
-## 今日极力推荐
-
-1. **LiLiCal**——LiLiCal 是一款日历和提醒应用程序，可与系统应用程序配合使用...（原价 $0.99，评分 5.0）
-2. **ADHD Tool - Do This**——Do This 是一款待办事项应用程序，仅包含一项任务。（原价 $0.99，评分 5.0）
-3. **Mind Reader+ | RPS vs AI**——你比你想象的更容易预测。（原价 $0.99，评分 5.0）
-
-
-## 付费应用限时免费（15 款）
+## 付费应用限时免费（1 款）
 
 点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。
 
-### 效率工具（8 款）
+### 1. Bash Multiplayer Party
 
-#### 1. ADHD Tool - Do This
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（6 人评分）
-**设备**：iPhone / iPad / Apple Watch，最低 iOS 17.0
+**原价**：付费应用，现在免费
+**评分**：★4.6（32 人评分）
+**设备**：iPhone / iPad，最低 iOS 17.0
 **语言**：仅英文
-**简介**：Do This 是一款待办事项应用程序，仅包含一项任务。
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6563141268)
-
-#### 2. LiLiCal
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（5 人评分）
-**设备**：iPhone / iPad / Mac，最低 iOS 17.0
-**语言**：中文、英文、日文、韩文、法文等 7 种
-**简介**：LiLiCal 是一款日历和提醒应用程序，可与系统应用程序配合使用...
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6792025726)
-
-#### 3. Mind Reader+ | RPS vs AI
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（3 人评分）
-**设备**：iPhone / iPad，最低 iOS 18.0
-**语言**：仅英文
-**简介**：你比你想象的更容易预测。
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1141892292)
-
-#### 4. Uploader for Mendeley
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（2 人评分）
-**设备**：iPhone / iPad，最低 iOS 15.0
-**语言**：仅英文
-**简介**：直接将页面 URL 粘贴到 Uploader-for-Mendeley 搜索框中或...
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1606546011)
-
-#### 5. All Notes Aside
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（1 人评分）
-**设备**：iPhone / iPad，最低 iOS 11.0
-**语言**：英文、西班牙文
-**简介**：使用 ANA（All Notes Aside），您可以即时记笔记并将其发送......
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1419991586)
-
-#### 6. CleanStreak Home
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（1 人评分）
-**设备**：iPhone / iPad，最低 iOS 15.1
-**语言**：仅英文
-**简介**：周末打扫整​​个房子很糟糕。
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6757317342)
-
-#### 7. Uploader for Zotero
-
-**原价**：$0.99，现在免费
-**评分**：★4.2（5 人评分）
-**设备**：iPhone / iPad，最低 iOS 15.0
-**语言**：仅英文
-**简介**：直接将页面 URL 粘贴到 Uploader-for-Zotero 搜索框或...
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1566733750)
-
-#### 8. Simplistic Checklist
-
-**原价**：$0.99，现在免费
-**评分**：★4.0（1 人评分）
-**设备**：iPhone / iPad，最低 iOS 12.0
-**语言**：仅英文
-**简介**：简化且整洁。
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6457203636)
-
-### 开发者工具（1 款）
-
-#### 1. ML Trainer: Make Training Data
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（3 人评分）
-**设备**：iPhone / iPad，最低 iOS 14.0
-**语言**：仅英文
-**简介**：为图像分类机器学习创建原始训练数据......
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1573622903)
-
-### 健康健美（1 款）
-
-#### 1. 4-7-8 Breathe: Focus & Calm
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（3 人评分）
-**设备**：iPhone / iPad，最低 iOS 15.1
-**语言**：仅英文
-**简介**：利用科学支持的呼吸技术在一分钟内找到平静……
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6749908822)
-
-### 工具（4 款）
-
-#### 1. Find PRO
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（2 人评分）
-**设备**：iPhone / iPad / Mac，最低 iOS 14.0
-**语言**：仅英文
-**简介**：Find PRO – 高级互联网搜索 Find PRO 是一种快速、优雅的方式......
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id964800714)
-
-#### 2. Retro Mind Map-XMB Mind Mapping notepad memo notes
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（2 人评分）
-**设备**：iPhone / iPad，最低 iOS 6.0
-**语言**：仅英文
-**简介**：这是一个很有趣的导图软件，软件采用类似于psp的XMB菜单方式来展现思维导图，主要采用游戏虚拟按键操作
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1247126338)
-
-#### 3. Where Am I - with Speech
-
-**原价**：$0.99，现在免费
-**评分**：★4.5（2 人评分）
-**设备**：iPhone / iPad，最低 iOS 17.6
-**语言**：仅英文
-**简介**：描述：- 该应用程序专为视觉障碍人士设计......
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1059458919)
-
-#### 4. Electric PRO
-
-**原价**：$0.99，现在免费
-**评分**：★4.2（5 人评分）
-**设备**：iPhone / iPad / Mac，最低 iOS 12.0
-**语言**：仅英文
-**简介**：电气装置的终极转换器，提供快速、准确的...
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1014995444)
-
-### 体育（1 款）
-
-#### 1. Clay Smasher
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（1 人评分）
-**设备**：iPhone / iPad / Mac，最低 iOS 15.0
-**语言**：仅英文
-**简介**：最后——一款尊重您的隐私和钱包的拍摄应用程序。
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6757287055)
+**简介**：Bash 多人派对是 iPhone 上的四人派对战斗。
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6814895663)
 
 ## 终身内购 0 元兑换（8 个）
 
