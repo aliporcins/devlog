@@ -668,8 +668,15 @@ def make_cover(icon_paths, out_path, date_str, n_apps, n_iaps=0):
     if loaded:
         total_w = len(loaded) * icon_size + (len(loaded) - 1) * 40
         x = (W - total_w) // 2
+        # Icons are square JPEGs; round the corners to the iOS icon
+        # proportion (~22.5% of the side) so the cover reads like real
+        # App Store artwork instead of raw squares (2026-11-24).
+        mask = Image.new("L", (icon_size, icon_size), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [0, 0, icon_size, icon_size],
+            radius=int(icon_size * 0.225), fill=255)
         for icon in loaded:
-            img.paste(icon, (x, 300))
+            img.paste(icon, (x, 300), mask)
             x += icon_size + 40
     else:
         # Decorative fallback (no icons at all): a large translucent
