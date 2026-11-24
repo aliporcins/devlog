@@ -465,8 +465,10 @@ def main():
     with open(md_path) as f:
         md = f.read()
     featured, paid_apps, iap_apps = parse_post(md)
-    if not featured and paid_apps:
-        featured = [a["name"] for a in paid_apps[:3]]
+    # No fallback: when the post has no recommendation section (no
+    # Chinese app that day), featured stays empty and the cover caption
+    # carries no recommendation line either — English-only apps must
+    # not be promoted into the featured slot here.
 
     lang_path = os.path.join(ROOT, "automation", "data", date, "languages.json")
     langs = {}
@@ -585,12 +587,13 @@ def _post_all(args, token, chat_id, date, date_cn, sleep_s,
     if not args.only and "cover" not in posted:
         cover = os.path.join(
             ROOT, "assets", f"free-apps-{date.replace('-', '')}", "cover.jpg")
-        feat_txt = "、".join(featured)
-        caption = (f"📱 <b>今日限免（{date_cn}）</b>\n\n"
-                   f"⭐ <b>今日极力推荐</b>：{feat_txt}\n\n"
-                   f"今日 {len(paid_apps)} 款完全免费（不含内购）＋ "
-                   f"{len(iap_apps)} 个终身内购 0 元兑换\n"
-                   f"⏰ 限免随时结束，看到喜欢的尽快领。")
+        caption = "📱 <b>今日限免（{date_cn}）</b>\n\n".format(date_cn=date_cn)
+        if featured:
+            caption += ("⭐ <b>今日极力推荐</b>："
+                        f"{'、'.join(featured)}\n\n")
+        caption += (f"今日 {len(paid_apps)} 款完全免费（不含内购）＋ "
+                    f"{len(iap_apps)} 个终身内购 0 元兑换\n"
+                    f"⏰ 限免随时结束，看到喜欢的尽快领。")
         if args.dry_run:
             print(f"[dry-run] cover: {caption!r}")
             print(f"[dry-run] cover file exists: {os.path.isfile(cover)}")
