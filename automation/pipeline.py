@@ -645,22 +645,25 @@ def make_cover(icon_paths, out_path, date_str, n_apps):
     d.text((60, 60), "今日限免", font=font_big, fill=(245, 245, 245))
     d.text((60, 150), f"{date_str} · {n_apps} 款完全免费",
            font=font_small, fill=(200, 200, 210))
-    # Featured icons, centered: 3 x 240px with 40px gaps = 800px wide,
-    # starting at x=200 on the 1200px canvas, so the right side is no
-    # longer empty black (the old layout pasted 220px icons from x=60
-    # and stopped at x=800, leaving 400px blank).
+    # Featured icons, centered: up to 4 icons. 1-3 icons stay 240px
+    # (the verified layout: 3 x 240 + 2 x 40 gaps = 800px wide,
+    # starting at x=200, so the right side is no longer empty black).
+    # 4 icons shrink to 220px: 4 x 220 + 3 x 40 gaps = 1000px wide,
+    # still centered on the 1200px canvas. No icons (empty featured)
+    # leaves just the title + date lines, via the `if loaded:` guard.
+    icon_size = 220 if len(icon_paths) >= 4 else 240
     loaded = []
-    for p in icon_paths[:3]:
+    for p in icon_paths[:4]:
         try:
-            loaded.append(Image.open(p).convert("RGB").resize((240, 240)))
+            loaded.append(Image.open(p).convert("RGB").resize((icon_size, icon_size)))
         except Exception:
             continue
     if loaded:
-        total_w = len(loaded) * 240 + (len(loaded) - 1) * 40
+        total_w = len(loaded) * icon_size + (len(loaded) - 1) * 40
         x = (W - total_w) // 2
         for icon in loaded:
             img.paste(icon, (x, 300))
-            x += 280
+            x += icon_size + 40
     img.save(out_path, "JPEG", quality=88)
     print(f"  cover -> {out_path}")
 
@@ -774,19 +777,22 @@ def write_post(date, paid, iaps, featured, asset_dir):
          f"0 元领，原价加起来约 {total_iap:.0f} 美元。都是今天刚确认的，"
          f"限免随时可能结束，看到喜欢的就领。"),
         "",
-        "## 今日极力推荐",
-        "",
     ]
-    for i, a in enumerate(featured, 1):
-        # price_usd can be None (AppRaven-sourced apps carry no price);
-        # the per-app section already falls back to '付费应用', do the
-        # same here instead of formatting None (TypeError).
-        fprice = (f"${a['price_usd']:.2f}" if a["price_usd"]
-                  else "付费应用")
-        lines.append(
-            f"{i}. **{a['name']}** — 评分 {a['rating']:.1f}，原价 "
-            f"{fprice}，{a['intro']}")
-    lines += ["", "", f"## 付费应用限时免费（{len(paid)} 款）", "",
+    # Empty featured (no Chinese app that day): omit the whole
+    # recommendation section, no bare heading left behind.
+    if featured:
+        lines += ["## 今日极力推荐", ""]
+        for i, a in enumerate(featured, 1):
+            # price_usd can be None (AppRaven-sourced apps carry no price);
+            # the per-app section already falls back to '付费应用', do the
+            # same here instead of formatting None (TypeError).
+            fprice = (f"${a['price_usd']:.2f}" if a["price_usd"]
+                      else "付费应用")
+            lines.append(
+                f"{i}. **{a['name']}** — 评分 {a['rating']:.1f}，原价 "
+                f"{fprice}，{a['intro']}")
+        lines += ["", ""]
+    lines += [f"## 付费应用限时免费（{len(paid)} 款）", "",
               "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
               ""]
     # Category groups (### <category> + #### apps) when 2+ categories are
@@ -1224,17 +1230,19 @@ def save_posted(posted):
 
 
 def pick_featured(paid):
-    """Top 3 paid apps for the "今日极力推荐" text and the cover icons.
+    """Top paid apps for the "今日极力推荐" text and the cover icons.
 
-    Chinese-first: apps with a ZH localization (languageCodesISO2A
+    Chinese-only: only apps with a ZH localization (languageCodesISO2A
     contains 'ZH' — checked against the whole list, ZH sometimes
-    repeats or sits late in it) rank ahead of English-only apps; each
-    group is ordered by rating desc. When fewer than 3 apps have ZH,
-    the highest-rated English-only apps fill the remainder."""
-    return sorted(
-        paid,
-        key=lambda a: (1 if a.get("has_zh") else 0, a["rating"] or 0),
-        reverse=True)[:3]
+    repeats or sits late in it) are recommended, ordered by rating
+    desc, at most 4. When fewer than 4 apps have ZH, the list is
+    shorter — English-only apps are never used to fill the remainder.
+    An empty list (no Chinese app that day) means no recommendation
+    section that day; callers must handle it (write_post omits the
+    section, the tg_post cover caption omits the line)."""
+    return [a for a in sorted(
+        paid, key=lambda a: a["rating"] or 0, reverse=True)
+        if a.get("has_zh")][:4]
 
 
 def main():
@@ -1505,9 +1513,9 @@ def main():
         except Exception as e:
             print(f"  banner failed for {a['id']}: {e}")
 
-    # 5. featured + cover (featured is Chinese-first: see pick_featured;
-    # the same list drives both the recommendation text and the cover
-    # icons, so one change covers both).
+    # 5. featured + cover (featured is Chinese-only, at most 4: see
+    # pick_featured; the same list drives both the recommendation text
+    # and the cover icons, so one change covers both).
     featured = pick_featured(paid)
     make_cover([os.path.join(asset_dir, f"{a['id']}.jpg") for a in featured],
                os.path.join(asset_dir, "cover.jpg"), date, len(paid))
