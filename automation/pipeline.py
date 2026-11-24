@@ -323,29 +323,109 @@ def _is_promo_sentence(s):
     return False
 
 
-def first_sentence(text, max_len=70):
-    """First functional sentence of a description, capped at ~max_len chars.
+# Functional verbs: a sentence counts as describing what the app does
+# when it contains one of these (whole word for English, substring for
+# Chinese), or mentions the app itself. Leading hook / setup fragments
+# ("A whole ocean of puzzles.", "Most screen time tools count
+# minutes.", "What Matters, at a Glance.") have neither and are passed
+# over in favour of the next functional sentence (2026-11-24: Ringo,
+# Good Terms, Floaty). Deliberately NOT in the list: generic verbs
+# like count / say, which show up in setup sentences.
+_FUNCTIONAL_VERBS_EN = (
+    "put", "puts", "bring", "brings", "keep", "keeps", "let", "lets",
+    "help", "helps", "allow", "allows", "offer", "offers", "track",
+    "tracks", "manage", "manages", "create", "creates", "record",
+    "records", "remind", "reminds", "import", "imports", "play",
+    "plays", "learn", "practise", "practice", "explore", "explores",
+    "choose", "chooses", "build", "builds", "plan", "plans",
+    "organize", "organizes", "organise", "organises", "save", "saves",
+    "share", "shares", "edit", "edits", "change", "changes", "read",
+    "reads", "use", "uses", "get", "gets", "make",
+    "makes", "take", "takes", "see", "sees", "show", "shows", "give",
+    "gives", "provide", "provides", "turn", "turns", "set", "sets",
+    "add", "adds", "check", "checks", "ask", "asks", "log", "logs",
+    "logged", "sync", "syncs",
+)
+_FUNCTIONAL_VERBS_ZH = (
+    "显示", "帮", "让", "可以", "支持", "提供", "记录", "管理", "自动",
+    "查看", "收藏", "提醒", "同步", "导入", "导出", "创建", "编辑",
+    "播放", "学习", "练习", "探索", "选择", "制定", "保存", "分享",
+    "使用", "找到", "带来", "实现", "抬手", "一键", "完成", "追踪",
+    "倒数", "规划", "整理", "连接", "邀请", "放在",
+)
+_GENERIC_NAME_WORDS = ("app", "apps", "free", "plus", "lite", "pro",
+                       "deluxe", "kids", "jr", "ii", "iii", "hd", "4k")
+
+
+def _app_tokens(app_name):
+    """The app's brand word for the functional check: the first word
+    of the name with at least 4 chars (e.g. ringo, bolo, floaty).
+    Only the brand word — later name words like 'water' in 'Ringo:
+    Water Ring Toss' are ordinary nouns and would match hook sentences
+    ('A little water toy.')."""
+    for t in re.split(r"[^A-Za-z0-9]+", app_name or ""):
+        t = t.lower()
+        if len(t) >= 4 and t not in _GENERIC_NAME_WORDS:
+            return [t]
+    return []
+
+
+def _is_functional_sentence(p, app_tokens):
+    """True when a description fragment says what the app does."""
+    low = p.lower()
+    for t in app_tokens:
+        if re.search(r"\b" + re.escape(t) + r"\b", low):
+            return True
+    for v in _FUNCTIONAL_VERBS_EN:
+        if re.search(r"\b" + re.escape(v) + r"\b", low):
+            return True
+    for v in _FUNCTIONAL_VERBS_ZH:
+        if v in p:
+            return True
+    return False
+
+
+def _cap_sentence(p, max_len):
+    """Cut a sentence to max_len at a clause boundary, no ellipsis.
+
+    The old hard cut + "…" produced dangling "……" in the Chinese
+    intro (2026-11-24: Ni Hao Bolo, Dayfetti). Cutting after a comma /
+    clause pause keeps a complete clause instead."""
+    if len(p) <= max_len:
+        return p
+    head = p[:max_len]
+    for sep in ("，", "、", "；", "：", ",", ";", ":"):
+        i = head.rfind(sep)
+        if i > 0:
+            return head[:i].rstrip()
+    i = head.rfind(" ")
+    if i > 0:
+        return head[:i].rstrip()
+    return head.rstrip()
+
+
+def first_sentence(text, app_name=""):
+    """First functional sentence of a description (whole sentence, no
+    length cap — callers cap the result where the length matters).
 
     Splits on Chinese terminators (。！？) and on English sentence ends
     (. ! ? followed by a space), so an English description yields a real
     first sentence instead of an arbitrary 70-char cut. Leading promo
-    slogans are skipped (see _is_promo_sentence), and a short stub
-    fragment ("for iPad and iPhone!", 19 chars) is passed over in favour
-    of the first functional sentence of at least 20 chars; if every
-    fragment is a slogan or a stub, the first usable fragment is kept
-    rather than returning nothing.
+    slogans are skipped (see _is_promo_sentence), and a leading hook /
+    setup fragment with no functional verb and no mention of the app is
+    passed over in favour of the first functional sentence; if no
+    fragment qualifies, the first usable fragment of at least 20 chars
+    is kept, then any fragment of at least 8 chars, rather than
+    returning nothing.
     """
     if not text:
         return ""
     text = re.sub(r"\s+", " ", text).strip()
     parts = re.split(r"[。！？\n]|(?<=[.!?])\s+", text)
+    tokens = _app_tokens(app_name)
 
-    def cap(p):
-        if len(p) > max_len:
-            p = p[:max_len].rstrip() + "…"
-        return p
-
-    first = ""      # first non-promo fragment >= 8 chars
+    first = ""      # first non-promo functional fragment
+    first_long = ""  # first non-promo fragment >= 20 chars
     first_any = ""  # first fragment >= 8 chars, promo or not
     for p in parts:
         p = p.strip()
@@ -355,15 +435,33 @@ def first_sentence(text, max_len=70):
             first_any = p
         if _is_promo_sentence(p):
             continue
-        if not first:
+        if not first_long and len(p) >= 20:
+            first_long = p
+        if not first and _is_functional_sentence(p, tokens):
             first = p
-        if len(p) >= 20:
-            return cap(p)
-    if first:
-        return cap(first)
-    if first_any:
-        return cap(first_any)
-    return text[:max_len]
+            break
+    picked = first or first_long or first_any
+    if not picked:
+        return text[:200]
+    return picked
+
+
+def _polish_intro(s):
+    """Normalize a finished Chinese intro: 您 -> 你 (the translator's
+    formal 'your' reads stiff in a one-line app blurb — 2026-11-24:
+    Petals '您的周期'), and drop any dangling ellipsis left by an
+    older truncation."""
+    s = (s or "").strip()
+    s = s.replace("您", "你")
+    # Strip a dangling ellipsis ("…", "……", "...") but keep a single
+    # full stop: a normal sentence ends with 。/!/? or one ".".
+    s = re.sub(r"(…+|[.]{2,})$", "", s).rstrip()
+    return s
+
+
+def _cap_zh(s, max_len=70):
+    """Cap a Chinese intro at max_len chars at a clause boundary."""
+    return _cap_sentence(s, max_len)
 
 
 # Translation chain (tried in order; each level's result must contain
@@ -532,22 +630,26 @@ def chinese_intro(app_id, us_record):
     4. No description at all: a generic Chinese line from name + genre.
     The raw iTunes record is never modified.
     """
+    name = us_record.get("trackName", "")
     cn = lookup(app_id, country="CN")
     if cn and cn.get("description"):
-        s = first_sentence(cn["description"])
+        s = first_sentence(cn["description"], app_name=name)
         if s and any("\u4e00" <= ch <= "\u9fff" for ch in s):
             print(f"  [intro] {app_id}: via cn-official")
-            return s
+            return _polish_intro(_cap_zh(s))
     if us_record.get("description"):
-        s = first_sentence(us_record["description"])
+        # No length cap on the English sentence: a long English
+        # sentence usually translates short, and capping it first is
+        # what left dangling "……" in the intro. Cap the Chinese.
+        s = first_sentence(us_record["description"], app_name=name)
         if s:
             zh, provider = translate_en_to_zh(s)
             if zh and any("\u4e00" <= ch <= "\u9fff" for ch in zh):
                 print(f"  [intro] {app_id}: via {provider}")
-                return zh
+                return _polish_intro(_cap_zh(zh))
             print(f"  [intro] {app_id}: translation unavailable, "
                   f"keeping English intro")
-            return s
+            return _polish_intro(_cap_sentence(s, 70))
     genre = (us_record.get("primaryGenreName") or "应用")
     return f"{us_record.get('trackName', '')}是一款{genre}应用。"
 
@@ -651,8 +753,15 @@ def make_cover(icon_paths, out_path, date_str, n_apps, n_iaps=0):
         except Exception:
             font_small = ImageFont.load_default()
     d.text((60, 60), "今日限免", font=font_big, fill=(245, 245, 245))
-    d.text((60, 150), f"{date_str} · {n_apps} 款完全免费",
-           font=font_small, fill=(200, 200, 210))
+    # Subtitle counts both kinds: a 0-paid day must not read as an
+    # empty day ("0 款完全免费", 2026-11-24 round 3).
+    if n_apps:
+        sub = f"{date_str} · {n_apps} 款完全免费"
+        if n_iaps:
+            sub += f" · {n_iaps} 个内购"
+    else:
+        sub = f"{date_str} · {n_iaps} 个内购 0 元兑"
+    d.text((60, 150), sub, font=font_small, fill=(200, 200, 210))
     # Featured icons, centered: up to 4 icons. 1-3 icons stay 240px
     # (the verified layout: 3 x 240 + 2 x 40 gaps = 800px wide,
     # starting at x=200, so the right side is no longer empty black).
@@ -709,12 +818,17 @@ def esc(s):
     return s.replace("|", "｜")
 
 
-def _post_paid_app_lines(a, i, asset_dir, ymd, level):
+def _post_paid_app_lines(a, i, asset_dir, ymd, level, languages=None):
     """Markdown lines for one paid app in the blog post.
 
     level 3 = flat list (### N. Name), level 4 = inside a category group
     (#### N. Name). The header image is the same wide banner as the
-    channel post; fall back to the icon when it could not be built."""
+    channel post; fall back to the icon when it could not be built.
+
+    Canonical field order (2026-11-24 audit item 7, shared with the
+    WeChat article): 原价 / 评分 / 设备 / 大小 / 语言 / 简介 / 领取.
+    Rating is '★4.3（13）' (item 8) and the line is omitted when the
+    app has no rating."""
     header = (f"banner-{a['id']}.jpg"
               if os.path.isfile(os.path.join(
                   asset_dir, f"banner-{a['id']}.jpg"))
@@ -727,13 +841,20 @@ def _post_paid_app_lines(a, i, asset_dir, ymd, level):
         "",
         f"- **原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
         else "- **原价**：付费应用，现在免费",
+    ]
+    if a.get("rating"):
+        lines.append(
+            f"- **评分**：★{a['rating']:.1f}（{a['rating_count']:,}）")
+    lines += [
         f"- **设备**：{a['devices']}",
         f"- **最低系统**：iOS {a['min_os']}",
-        f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})",
     ]
     size = format_size(a.get("size_bytes"))
     if size:
         lines.append(f"- **大小**：{size}")
+    lang_txt = format_langs((languages or {}).get(str(a["id"]), []))
+    if lang_txt:
+        lines.append(f"- **语言**：{lang_txt}")
     lines += [
         f"- **简介**：{a['intro']}",
         f"- **领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
@@ -746,9 +867,13 @@ def _post_paid_app_lines(a, i, asset_dir, ymd, level):
     return lines
 
 
-def _post_iap_app_lines(a, i, asset_dir, ymd, level):
+def _post_iap_app_lines(a, i, asset_dir, ymd, level, languages=None):
     """Markdown lines for one IAP promo in the blog post (level 3 flat,
-    level 4 inside a category group)."""
+    level 4 inside a category group).
+
+    Canonical field order (item 7): 内购 / 原价 / 评分 / 设备 / 大小 /
+    语言 / 简介 / 兑换链接 / App 链接. No rating -> the line is omitted
+    (was '暂无评分', item 8)."""
     header = (f"banner-{a['id']}.jpg"
               if os.path.isfile(os.path.join(
                   asset_dir, f"banner-{a['id']}.jpg"))
@@ -762,14 +887,20 @@ def _post_iap_app_lines(a, i, asset_dir, ymd, level):
         f"- **内购**：{a['iap_name']}",
         f"- **原价**：${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
         else "- **原价**：兑换码 0 元领",
+    ]
+    if a.get("rating"):
+        section_lines.append(
+            f"- **评分**：★{a['rating']:.1f}（{a['rating_count']:,}）")
+    section_lines += [
         f"- **设备**：{a['devices']}",
         f"- **最低系统**：iOS {a['min_os']}",
-        (f"- **评分**：★{a['rating']:.1f} ({a['rating_count']:,})"
-         if a.get("rating") else "- **评分**：暂无评分"),
     ]
     size = format_size(a.get("size_bytes"))
     if size:
         section_lines.append(f"- **大小**：{size}")
+    lang_txt = format_langs((languages or {}).get(str(a["id"]), []))
+    if lang_txt:
+        section_lines.append(f"- **语言**：{lang_txt}")
     section_lines.append(f"- **简介**：{a['intro']}")
     if a.get("redeem_url"):
         section_lines.append(
@@ -784,33 +915,78 @@ def _post_iap_app_lines(a, i, asset_dir, ymd, level):
     return section_lines
 
 
-def write_post(date, paid, iaps, featured, asset_dir):
+def _known_total(amounts):
+    """Sum of known $ prices, or None when every price is unknown.
+
+    A price of None means the original price was never captured; it
+    must not count as $0 — "原价加起来约 0 美元" on a day that does
+    have paid apps (2026-11-24: Mix and Match Two) is wrong."""
+    known = [a for a in amounts if a is not None]
+    return sum(known) if known else None
+
+
+def _title_suffix(paid, iaps):
+    """'N 款付费应用免费领＋M 个终身内购 0 元兑', empty parts dropped."""
+    parts = []
+    if paid:
+        parts.append(f"{len(paid)} 款付费应用免费领")
+    if iaps:
+        parts.append(f"{len(iaps)} 个终身内购 0 元兑")
+    return "＋".join(parts)
+
+
+def _lead_sentences(paid, iaps, total_paid, total_iap):
+    """The day's lead: paid clause, IAP clause, or both.
+
+    A 0-paid day says so plainly and leads with the IAPs instead of
+    claiming '0 款……免费领' (2026-11-24 round 3). A total is only
+    mentioned when at least one price is known."""
+    sents = []
+    if paid:
+        s = f"今天 {len(paid)} 款付费 App 限时免费"
+        if total_paid is not None:
+            s += f"，原价加起来约 {total_paid:.0f} 美元"
+        sents.append(s)
+    if iaps:
+        s = (f"另有 {len(iaps)} 个终身内购可用兑换码 0 元领"
+             if paid else
+             f"今天没有付费应用限免，另有 {len(iaps)} 个终身内购可用兑换码 0 元领")
+        if total_iap is not None:
+            s += f"，原价加起来约 {total_iap:.0f} 美元"
+        sents.append(s)
+    return "；".join(sents) + "。"
+
+
+def _claim_tail(paid):
+    """How to claim, for the excerpt / lead tail (item 11: the old
+    text only described the paid-app '获取' flow)."""
+    if paid:
+        return "点链接进 App Store 点“获取”就行，限免随时结束，看到就领。"
+    return "点帖子里的兑换链接进 App Store 兑，限免随时结束，看到就领。"
+
+
+def write_post(date, paid, iaps, featured, asset_dir, languages=None):
     """Write posts/<date>-free-apps.md in the 2026-11-23 format."""
     ymd = date.replace("-", "")
     slug = f"free-apps-{ymd}"
-    total_paid = sum(a["price_usd"] or 0 for a in paid)
-    total_iap = sum(a["iap_price"] or 0 for a in iaps)
-    title = (f"今日限免 App（{date}）：{len(paid)} 款付费应用免费领"
-             f"＋{len(iaps)} 个终身内购 0 元兑")
-    excerpt = (f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 "
-               f"{total_paid:.0f} 美元；另有 {len(iaps)} 个终身内购可用兑换码 "
-               f"0 元领，原价加起来约 {total_iap:.0f} 美元。点链接进 App Store "
-               f"点“获取”就行，限免随时结束，看到就领。")
+    total_paid = _known_total([a.get("price_usd") for a in paid])
+    total_iap = _known_total([a.get("iap_price") for a in iaps])
+    title = f"今日限免 App（{date}）：{_title_suffix(paid, iaps)}"
+    lead = _lead_sentences(paid, iaps, total_paid, total_iap)
+    excerpt = lead + _claim_tail(paid)
     lines = [
         "---",
         f"title: {title}",
         f"date: {date}",
-        "tag: 接单学习",
-        "tagkey: plan",
+        "tag: 应用限免",
+        "tagkey: free-apps",
         f"slug: {slug}",
         f"cover: free-apps-{ymd}/cover.jpg",
         f"excerpt: {excerpt}",
         "---",
         "",
-        (f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 "
-         f"{total_paid:.0f} 美元；另外还有 {len(iaps)} 个终身内购可用兑换码 "
-         f"0 元领，原价加起来约 {total_iap:.0f} 美元。都是今天刚确认的，"
-         f"限免随时可能结束，看到喜欢的就领。"),
+        (lead + "都是今天刚确认的，限免随时可能结束，看到喜欢的就"
+         + ("领。" if paid else "兑。")),
         "",
     ]
     # Empty featured (no Chinese app that day): omit the whole
@@ -827,21 +1003,26 @@ def write_post(date, paid, iaps, featured, asset_dir):
                 f"{i}. **{a['name']}** — 评分 {a['rating']:.1f}，原价 "
                 f"{fprice}，{a['intro']}")
         lines += ["", ""]
-    lines += [f"## 付费应用限时免费（{len(paid)} 款）", "",
-              "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
-              ""]
-    # Category groups (### <category> + #### apps) when 2+ categories are
-    # present; a lone category stays a flat list (### apps, as before).
-    paid_groups = group_by_category(paid)
-    grouped_paid = len(paid_groups) >= 2
-    if grouped_paid:
-        for cat, apps in paid_groups:
-            lines += [f"### {cat}（{len(apps)} 款）", ""]
-            for i, a in enumerate(apps, 1):
-                lines += _post_paid_app_lines(a, i, asset_dir, ymd, 4)
-    else:
-        for i, a in enumerate(paid, 1):
-            lines += _post_paid_app_lines(a, i, asset_dir, ymd, 3)
+    # Empty paid day: omit the whole paid section, no bare heading
+    # left behind (same rule as the empty featured section above).
+    if paid:
+        lines += [f"## 付费应用限时免费（{len(paid)} 款）", "",
+                  "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
+                  ""]
+        # Category groups (### <category> + #### apps) when 2+ categories are
+        # present; a lone category stays a flat list (### apps, as before).
+        paid_groups = group_by_category(paid)
+        grouped_paid = len(paid_groups) >= 2
+        if grouped_paid:
+            for cat, apps in paid_groups:
+                lines += [f"### {cat}（{len(apps)} 款）", ""]
+                for i, a in enumerate(apps, 1):
+                    lines += _post_paid_app_lines(a, i, asset_dir, ymd, 4,
+                                                  languages)
+        else:
+            for i, a in enumerate(paid, 1):
+                lines += _post_paid_app_lines(a, i, asset_dir, ymd, 3,
+                                              languages)
     if iaps:
         lines += [
             f"## 终身内购 0 元兑换（{len(iaps)} 个）",
@@ -861,10 +1042,12 @@ def write_post(date, paid, iaps, featured, asset_dir):
             for cat, apps in iap_groups:
                 lines += [f"### {cat}（{len(apps)} 个）", ""]
                 for i, a in enumerate(apps, 1):
-                    lines += _post_iap_app_lines(a, i, asset_dir, ymd, 4)
+                    lines += _post_iap_app_lines(a, i, asset_dir, ymd, 4,
+                                                 languages)
         else:
             for i, a in enumerate(iaps, 1):
-                lines += _post_iap_app_lines(a, i, asset_dir, ymd, 3)
+                lines += _post_iap_app_lines(a, i, asset_dir, ymd, 3,
+                                             languages)
     lines += ["---", "", "限免结束时间苹果不公布，一般 1–3 天，尽快领。", ""]
     path = os.path.join(POSTS_DIR, f"{date}-free-apps.md")
     with open(path, "w", encoding="utf-8") as f:
@@ -895,9 +1078,14 @@ def _wechat_paid_app_lines(a, i, languages, level):
         "",
         f"**原价**：${a['price_usd']:.2f}，现在免费" if a["price_usd"]
         else "**原价**：付费应用，现在免费",
-        f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）",
-        f"**设备**：{a['devices']}，最低 iOS {a['min_os']}",
     ]
+    if a.get("rating"):
+        lines.append(
+            f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,}）")
+    lines.append(f"**设备**：{a['devices']}，最低 iOS {a['min_os']}")
+    size = format_size(a.get("size_bytes"))
+    if size:
+        lines.append(f"**大小**：{size}")
     if lang_txt:
         lines.append(f"**语言**：{lang_txt}")
     lines += [
@@ -922,9 +1110,12 @@ def _wechat_iap_app_lines(a, i, languages, level):
     ]
     if a.get("rating"):
         lines.append(
-            f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,} 人评分）")
+            f"**评分**：★{a['rating']:.1f}（{a['rating_count']:,}）")
     lines.append(
         f"**设备**：{a['devices']}，最低 iOS {a['min_os']}")
+    size = format_size(a.get("size_bytes"))
+    if size:
+        lines.append(f"**大小**：{size}")
     if lang_txt:
         lines.append(f"**语言**：{lang_txt}")
     lines += [
@@ -946,16 +1137,20 @@ def write_wechat(date, paid, iaps, featured, languages, asset_dir):
     No Telegram emoji pile-up; plain sections, App Store links kept
     (WeChat articles can carry them)."""
     ymd = date.replace("-", "")
-    total_paid = sum(a["price_usd"] or 0 for a in paid)
-    total_iap = sum(a["iap_price"] or 0 for a in iaps)
+    total_paid = _known_total([a.get("price_usd") for a in paid])
+    total_iap = _known_total([a.get("iap_price") for a in iaps])
+    if paid:
+        wc_title = f"{len(paid)} 款付费 App 限时免费"
+    else:
+        wc_title = f"{len(iaps)} 个终身内购 0 元兑"
+    lead = _lead_sentences(paid, iaps, total_paid, total_iap)
     lines = [
-        f"# 今日限免｜{len(paid)} 款付费 App 限时免费",
+        f"# 今日限免｜{wc_title}",
         "",
         f"封面图：assets/free-apps-{ymd}/cover.jpg（在公众号编辑器里把这张图设为封面）",
         "",
-        f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 {total_paid:.0f} 美元；"
-        f"另外还有 {len(iaps)} 个终身内购可用兑换码 0 元领，原价加起来约 {total_iap:.0f} 美元。"
-        f"限免随时可能结束，看到喜欢的就领。",
+        lead + "限免随时可能结束，看到喜欢的就"
+        + ("领。" if paid else "兑。"),
         "",
     ]
     if featured:
@@ -966,19 +1161,20 @@ def write_wechat(date, paid, iaps, featured, languages, asset_dir):
                 f"{i}. **{a['name']}**——{a['intro']}（原价 {price}，"
                 f"评分 {a['rating']:.1f}）")
         lines += ["", ""]
-    lines += [f"## 付费应用限时免费（{len(paid)} 款）", "",
-              "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
-              ""]
-    wechat_paid_groups = group_by_category(paid)
-    grouped = len(wechat_paid_groups) >= 2
-    if grouped:
-        for cat, apps in wechat_paid_groups:
-            lines += [f"### {cat}（{len(apps)} 款）", ""]
-            for i, a in enumerate(apps, 1):
-                lines += _wechat_paid_app_lines(a, i, languages, 4)
-    else:
-        for i, a in enumerate(paid, 1):
-            lines += _wechat_paid_app_lines(a, i, languages, 3)
+    if paid:
+        lines += [f"## 付费应用限时免费（{len(paid)} 款）", "",
+                  "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。",
+                  ""]
+        wechat_paid_groups = group_by_category(paid)
+        grouped = len(wechat_paid_groups) >= 2
+        if grouped:
+            for cat, apps in wechat_paid_groups:
+                lines += [f"### {cat}（{len(apps)} 款）", ""]
+                for i, a in enumerate(apps, 1):
+                    lines += _wechat_paid_app_lines(a, i, languages, 4)
+        else:
+            for i, a in enumerate(paid, 1):
+                lines += _wechat_paid_app_lines(a, i, languages, 3)
     if iaps:
         lines += [
             f"## 终身内购 0 元兑换（{len(iaps)} 个）",
@@ -1014,23 +1210,46 @@ def write_xiaohongshu(date, paid, iaps, asset_dir):
     """Write automation/data/<date>/xiaohongshu.txt — a copy-paste-ready
     Xiaohongshu note. No external links anywhere (Xiaohongshu blocks
     them): readers are told to search the app name in the App Store.
-    Images to post are listed at the end (banner-<id>.jpg)."""
+    Images to post are listed at the end (banner-<id>.jpg), in the
+    same grouped order as the body text (item 2: the old paid+iaps
+    raw order mismatched the grouped body and mispaired images).
+    IAP entries print the public redeem code itself (item 3): without
+    a code the note is unusable, since no link can be tapped."""
     ymd = date.replace("-", "")
-    total_paid = sum(a["price_usd"] or 0 for a in paid)
+    total_paid = _known_total([a.get("price_usd") for a in paid])
+    total_iap = _known_total([a.get("iap_price") for a in iaps])
+    if paid:
+        xhs_title = f"今日限免｜这 {len(paid)} 款付费 App 白嫖，手慢无"
+        xhs_lead = f"今天 {len(paid)} 款付费 App 限时免费"
+        if total_paid is not None:
+            xhs_lead += f"，原价加起来约 {total_paid:.0f} 美元"
+        xhs_lead += "，全部 0 元领，限免随时结束，看到就冲！"
+        search_line = ("在 App Store 搜下面每个应用的名字，点“获取”就行，"
+                       "只点获取，别买内购。")
+    else:
+        xhs_title = f"今日限免｜{len(iaps)} 个终身内购 0 元兑，手慢无"
+        xhs_lead = "今天没有付费应用限免，"
+        xhs_lead += f"另有 {len(iaps)} 个终身内购 0 元兑"
+        if total_iap is not None:
+            xhs_lead += f"，原价加起来约 {total_iap:.0f} 美元"
+        xhs_lead += "，限免随时结束，看到就冲！"
+        search_line = ("在 App Store 搜下面每个应用的名字，先装上 App，"
+                       "再用每款下面的兑换码兑换。")
     lines = [
-        f"今日限免｜这 {len(paid)} 款付费 App 白嫖，手慢无",
+        xhs_title,
         "",
-        f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 {total_paid:.0f} 美元，"
-        f"全部 0 元领，限免随时结束，看到就冲！",
+        xhs_lead,
         "",
-        "在 App Store 搜下面每个应用的名字，点“获取”就行，只点获取，别买内购。",
+        search_line,
         "",
     ]
+    ordered = []  # (app, is_iap) in body order, for the image list
     xhs_paid_groups = group_by_category(paid)
     if len(xhs_paid_groups) >= 2:
         for cat, apps in xhs_paid_groups:
             lines += [f"【{cat}】", ""]
             for i, a in enumerate(apps, 1):
+                ordered.append((a, False))
                 price = (f"原价 ${a['price_usd']:.2f} → 免费" if a["price_usd"]
                          else "付费应用 → 免费")
                 lines.append(
@@ -1038,6 +1257,7 @@ def write_xiaohongshu(date, paid, iaps, asset_dir):
             lines.append("")
     else:
         for i, a in enumerate(paid, 1):
+            ordered.append((a, False))
             price = (f"原价 ${a['price_usd']:.2f} → 免费" if a["price_usd"]
                      else "付费应用 → 免费")
             lines.append(
@@ -1049,22 +1269,29 @@ def write_xiaohongshu(date, paid, iaps, asset_dir):
             for cat, apps in xhs_iap_groups:
                 lines += [f"【{cat}】", ""]
                 for i, a in enumerate(apps, 1):
+                    ordered.append((a, True))
                     price = (f"原价 ${a['iap_price']:.2f}" if a.get("iap_price")
                              else "原价不详")
+                    code_txt = (f"兑换码：{a['redeem_code']}"
+                                if a.get("redeem_code") else "兑换码待公布")
                     lines.append(
-                        f"{i}. {a['name']}（{a['iap_name']}，{price}，兑换码免费领）："
+                        f"{i}. {a['name']}（{a['iap_name']}，{price}，{code_txt}）："
                         f"{a['intro']}")
                 lines.append("")
         else:
             for i, a in enumerate(iaps, 1):
+                ordered.append((a, True))
                 price = (f"原价 ${a['iap_price']:.2f}" if a.get("iap_price")
                          else "原价不详")
+                code_txt = (f"兑换码：{a['redeem_code']}"
+                            if a.get("redeem_code") else "兑换码待公布")
                 lines.append(
-                    f"{i}. {a['name']}（{a['iap_name']}，{price}，兑换码免费领）："
+                    f"{i}. {a['name']}（{a['iap_name']}，{price}，{code_txt}）："
                     f"{a['intro']}")
         lines += [
             "",
-            "内购兑换方式：先装上 App，再进 App Store 按提示兑换（兑换码免费领）。",
+            "内购兑换方式：先装上 App，再进 App Store 兑换页输入上面每款对应的兑换码；"
+            "没有兑换码的款，暂时只能先装 App，等开发者放出公开码。",
         ]
     lines += [
         "",
@@ -1072,12 +1299,10 @@ def write_xiaohongshu(date, paid, iaps, asset_dir):
         "",
         "配图（按顺序发，每款一张）：",
     ]
-    for a in paid:
+    for a, is_iap in ordered:
         lines.append(
-            f"- {_banner_image(a, asset_dir)}（{a['name']}）")
-    for a in iaps:
-        lines.append(
-            f"- {_banner_image(a, asset_dir, iap=True)}（{a['name']}·内购）")
+            f"- {_banner_image(a, asset_dir, iap=is_iap)}（{a['name']}"
+            f"{'·内购' if is_iap else ''}）")
     lines.append(f"封面可用：assets/free-apps-{ymd}/cover.jpg")
     path = os.path.join(DATA_DIR, date, "xiaohongshu.txt")
     with open(path, "w", encoding="utf-8") as f:
@@ -1113,8 +1338,9 @@ def _wechat_html_paid_card(a, i, languages, asset_dir, ymd):
     price = (f"${a['price_usd']:.2f}，现在免费" if a["price_usd"]
              else "付费应用，现在免费")
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
+    if a.get("rating"):
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,}）</p>')
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
-    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
     _sz = format_size(a.get("size_bytes"))
     if _sz:
         h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">大小：</strong>{_sz}</p>')
@@ -1143,9 +1369,9 @@ def _wechat_html_iap_card(a, i, languages, asset_dir, ymd):
     price = (f"${a['iap_price']:.2f}，兑换码 0 元领" if a.get("iap_price")
              else "兑换码 0 元领")
     h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">原价：</strong>{price}</p>')
-    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
     if a.get("rating"):
-        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,} 人评分）</p>')
+        h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">评分：</strong>★{a["rating"]:.1f}（{a["rating_count"]:,}）</p>')
+    h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">设备：</strong>{esc(a["devices"])}，最低 iOS {esc(a["min_os"])}</p>')
     _sz = format_size(a.get("size_bytes"))
     if _sz:
         h.append(f'<p style="margin:6px 0;font-size:15px;color:#444444;"><strong style="color:#222222;">大小：</strong>{_sz}</p>')
@@ -1168,14 +1394,19 @@ def write_wechat_html(date, paid, iaps, featured, languages, asset_dir):
     no JS; only tags/styles the WeChat editor keeps). Images are absolute
     raw-GitHub URLs so the editor can fetch and re-upload them."""
     ymd = date.replace("-", "")
-    total_paid = sum(a["price_usd"] or 0 for a in paid)
-    total_iap = sum(a["iap_price"] or 0 for a in iaps)
+    total_paid = _known_total([a.get("price_usd") for a in paid])
+    total_iap = _known_total([a.get("iap_price") for a in iaps])
     esc = html.escape
     cover_url = _raw_img_url(f"free-apps-{ymd}/cover.jpg")
+    if paid:
+        wc_title = f"{len(paid)} 款付费 App 限时免费"
+    else:
+        wc_title = f"{len(iaps)} 个终身内购 0 元兑"
+    lead = _lead_sentences(paid, iaps, total_paid, total_iap)
     h = []
     h.append("<!DOCTYPE html>")
     h.append('<html lang="zh-CN"><head><meta charset="utf-8">')
-    h.append(f"<title>今日限免｜{len(paid)} 款付费 App 限时免费</title></head>")
+    h.append(f"<title>今日限免｜{wc_title}</title></head>")
     h.append('<body style="margin:0;padding:0;background:#ffffff;">')
     h.append('<div style="max-width:677px;margin:0 auto;padding:8px 16px 32px;'
              "font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',"
@@ -1183,16 +1414,14 @@ def write_wechat_html(date, paid, iaps, featured, languages, asset_dir):
              'color:#333333;line-height:1.75;font-size:16px;">')
     h.append('<h1 style="font-size:22px;line-height:1.4;color:#222222;'
              'text-align:center;margin:24px 0 8px;">'
-             f"今日限免｜{len(paid)} 款付费 App 限时免费</h1>")
+             f"今日限免｜{wc_title}</h1>")
     h.append('<p style="text-align:center;color:#888888;font-size:14px;'
-             f'margin:0 0 20px;">{date} · {len(paid)} 款付费应用免费领'
-             f"＋{len(iaps)} 个终身内购 0 元兑</p>")
+             f'margin:0 0 20px;">{date} · {_title_suffix(paid, iaps)}</p>')
     h.append(f'<p style="text-align:center;margin:0 0 8px;"><img src="{cover_url}" '
              'alt="今日限免封面" style="width:100%;display:block;border-radius:8px;"></p>')
     h.append('<p style="color:#444444;font-size:15px;">'
-             f"今天 {len(paid)} 款付费 App 限时免费，原价加起来约 {total_paid:.0f} 美元；"
-             f"另外还有 {len(iaps)} 个终身内购可用兑换码 0 元领，原价加起来约 {total_iap:.0f} 美元。"
-             "限免随时可能结束，看到喜欢的就领。</p>")
+             f"{lead}限免随时可能结束，看到喜欢的就"
+             + ("领。" if paid else "兑。") + "</p>")
     if featured:
         h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
                  '#d4af37;padding-left:10px;margin:28px 0 12px;">今日极力推荐</h2>')
@@ -1201,20 +1430,21 @@ def write_wechat_html(date, paid, iaps, featured, languages, asset_dir):
             h.append('<p style="margin:8px 0;font-size:15px;color:#444444;">'
                      f"<strong style=\"color:#222222;\">{i}. {esc(a['name'])}</strong>"
                      f"——{esc(a['intro'])}（原价 {price}，评分 {a['rating']:.1f}）</p>")
-    h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
-             f"#d4af37;padding-left:10px;margin:28px 0 12px;\">付费应用限时免费（{len(paid)} 款）</h2>")
-    h.append('<p style="color:#444444;font-size:15px;">'
-             "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。</p>")
-    html_paid_groups = group_by_category(paid)
-    if len(html_paid_groups) >= 2:
-        for cat, apps in html_paid_groups:
-            h.append('<h3 style="font-size:16px;color:#222222;margin:20px 0 12px;">'
-                     f"{html.escape(cat)}（{len(apps)} 款）</h3>")
-            for i, a in enumerate(apps, 1):
+    if paid:
+        h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
+                 f"#d4af37;padding-left:10px;margin:28px 0 12px;\">付费应用限时免费（{len(paid)} 款）</h2>")
+        h.append('<p style="color:#444444;font-size:15px;">'
+                 "点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。</p>")
+        html_paid_groups = group_by_category(paid)
+        if len(html_paid_groups) >= 2:
+            for cat, apps in html_paid_groups:
+                h.append('<h3 style="font-size:16px;color:#222222;margin:20px 0 12px;">'
+                         f"{html.escape(cat)}（{len(apps)} 款）</h3>")
+                for i, a in enumerate(apps, 1):
+                    h += _wechat_html_paid_card(a, i, languages, asset_dir, ymd)
+        else:
+            for i, a in enumerate(paid, 1):
                 h += _wechat_html_paid_card(a, i, languages, asset_dir, ymd)
-    else:
-        for i, a in enumerate(paid, 1):
-            h += _wechat_html_paid_card(a, i, languages, asset_dir, ymd)
     if iaps:
         h.append('<h2 style="font-size:18px;color:#222222;border-left:4px solid '
                  f"#d4af37;padding-left:10px;margin:28px 0 12px;\">终身内购 0 元兑换（{len(iaps)} 个）</h2>")
@@ -1505,6 +1735,7 @@ def main():
             "iap_name": iap_name,
             "iap_price": iap_price,
             "redeem_url": redeem_url,
+            "redeem_code": code,  # raw public code, for xiaohongshu
             "unlock": unlock or f"解锁{iap_name}终身版。",
             "rating": rec.get("averageUserRating") or 0,
             "rating_count": rec.get("userRatingCount") or 0,
@@ -1586,7 +1817,7 @@ def main():
                n_iaps=len(iaps))
 
     # 6. write post + data files
-    write_post(date, paid, iaps, featured, asset_dir)
+    write_post(date, paid, iaps, featured, asset_dir, languages)
     day_data = os.path.join(DATA_DIR, date)
     os.makedirs(day_data, exist_ok=True)
     with open(os.path.join(day_data, "apps.json"), "w") as f:
