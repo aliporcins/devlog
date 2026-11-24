@@ -1,0 +1,27 @@
+name: QwenPaw keep-alive
+
+# Keep the AgentScope free QwenPaw instance awake (it sleeps after 48h idle).
+# Runs alongside the Muse cron keep-alive; both ping the same public URL.
+# No secrets needed: the instance URL is public and a plain GET counts as activity.
+
+on:
+  schedule:
+    # 00:00 and 12:00 UTC = 08:00 and 20:00 CST, every day
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping QwenPaw instance
+        run: |
+          url="https://01a20de6-a388-7cc3-9596-ef0ef7ac0088.qwenpaw.platform.agentscope.io/"
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$url")
+          echo "HTTP status: $code"
+          if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
+            echo "QwenPaw is awake."
+          else
+            echo "QwenPaw ping failed with status $code" >&2
+            exit 1
+          fi
