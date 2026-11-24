@@ -2,7 +2,7 @@
 
 封面图：assets/free-apps-20261124/cover.jpg（在公众号编辑器里把这张图设为封面）
 
-今天 1 款付费 App 限时免费，原价加起来约 0 美元；另外还有 8 个终身内购可用兑换码 0 元领，原价加起来约 158 美元。限免随时可能结束，看到喜欢的就领。
+今天 1 款付费 App 限时免费；另有 8 个终身内购可用兑换码 0 元领，原价加起来约 158 美元。限免随时可能结束，看到喜欢的就领。
 
 ## 付费应用限时免费（1 款）
 
@@ -11,10 +11,11 @@
 ### 1. Mix and Match Two
 
 **原价**：付费应用，现在免费
-**评分**：★5.0（1 人评分）
+**评分**：★5.0（1）
 **设备**：iPhone / iPad，最低 iOS 17.6
+**大小**：9.1 MB
 **语言**：仅英文
-**简介**：混合和匹配两个应用程序多年来一直让记忆游戏迷们感到高兴......
+**简介**：Mix and Match Two 这款应用十多年来一直让记忆游戏迷们爱不释手，如今比以往更好！
 **领取**：[在 App Store 打开](https://apps.apple.com/us/app/id634203229)
 
 ## 终身内购 0 元兑换（8 个）
@@ -29,8 +30,9 @@
 
 **内购**：30 Credits
 **原价**：$19.99，兑换码 0 元领
-**评分**：★4.3（13 人评分）
+**评分**：★4.3（13）
 **设备**：iPhone / iPad，最低 iOS 17.0
+**大小**：43.2 MB
 **语言**：中文、英文、日文、韩文、法文等 12 种
 **简介**：Forgeit 读取图片中的文字，你输入新内容，新文字就会以相同的位置和样式放回去，仿佛本来就在那里
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6778315973&code=FORGEITBEST)
@@ -43,8 +45,9 @@
 **内购**：Good Terms Plus Lifetime
 **原价**：$24.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 26.0
+**大小**：3.9 MB
 **语言**：仅英文
-**简介**：大多数屏幕时间工具都会计算分钟数。
+**简介**：Good Terms 会在你想限制的应用前面加一道 5 秒确认。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6834076393&code=MIKELOVESPUPPIES)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6834076393)
 
@@ -52,10 +55,11 @@
 
 **内购**：Lifetime Plus Family
 **原价**：$49.99，兑换码 0 元领
-**评分**：★4.9（7 人评分）
+**评分**：★4.9（7）
 **设备**：iPhone / iPad，最低 iOS 18.6
+**大小**：14.8 MB
 **语言**：仅英文
-**简介**：您的周期，详细记录下来。
+**简介**：你的周期，详细记录下来。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6751436384&code=GETFREEPETALS)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6751436384)
 
@@ -66,8 +70,9 @@
 **内购**：Ringo Pro
 **原价**：$2.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 17.0
+**大小**：9.9 MB
 **语言**：仅英文
-**简介**：充满谜题的海洋。
+**简介**：Ringo 把经典的水环玩具搬到了你的 iPhone 和 iPad 上。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6822308678&code=FRIEND5)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6822308678)
 
@@ -78,8 +83,9 @@
 **内购**：Ni Hao Bolo Pro
 **原价**：$9.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 17.0
+**大小**：5.9 MB
 **语言**：中文、英文
-**简介**：从英语中学习有用的普通话，或者用普通话练习英语……
+**简介**：从英语中学实用的普通话，或用普通话练英语。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6827587342&code=FRIEND5)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6827587342)
 
@@ -89,10 +95,11 @@
 
 **内购**：Floaty Pro
 **原价**：$29.99，兑换码 0 元领
-**评分**：★5.0（5 人评分）
+**评分**：★5.0（5）
 **设备**：iPhone / iPad，最低 iOS 17.0
+**大小**：26.6 MB
 **语言**：中文、英文
-**简介**：取件码藏在短信里，待办写在备忘录里，车次座位要翻订单——需要的那一刻，总是找不到
+**简介**：浮现把此刻最需要的信息，显示在你的锁屏上。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6825604929&code=GGFPL2K15)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6825604929)
 
@@ -103,6 +110,7 @@
 **内购**：FamilyDay Lifetime
 **原价**：$6.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 17.0
+**大小**：15.9 MB
 **语言**：中文、英文
 **简介**：FamilyDay 帮你记录生日、结婚纪念日、相识、成长与生活中的重要时刻
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6825604711&code=FAMILYDAY500REDNOTE)
@@ -114,10 +122,11 @@
 
 **内购**：Dayfetti Pro · Lifetime
 **原价**：$12.99，兑换码 0 元领
-**评分**：★5.0（2 人评分）
+**评分**：★5.0（2）
 **设备**：iPhone / iPad，最低 iOS 18.0
+**大小**：14.1 MB
 **语言**：仅英文
-**简介**：倒计时生日、旅行、周年纪念日和您期待的日子……
+**简介**：把下一个重要日子放在主屏幕小组件上，日子到了，存几张照片、写几句话，把它变成值得回望的回忆。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6831184506&code=FRIEND5)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6831184506)
 
