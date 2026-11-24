@@ -2,176 +2,182 @@
 
 封面图：assets/free-apps-20261124/cover.jpg（在公众号编辑器里把这张图设为封面）
 
-今天 15 款付费 App 限时免费，原价加起来约 13 美元；另外还有 8 个终身内购可用兑换码 0 元领，原价加起来约 148 美元。限免随时可能结束，看到喜欢的就领。
+今天 15 款付费 App 限时免费，原价加起来约 15 美元；另外还有 8 个终身内购可用兑换码 0 元领，原价加起来约 158 美元。限免随时可能结束，看到喜欢的就领。
 
 ## 今日极力推荐
 
-1. **Status Styler**——50% OFF!!（原价 $1.99，评分 5.0）
-2. **Horizon: Calendar Highlights**——你的 Apple 日历，按重要程度整理（原价 $0.99，评分 5.0）
-3. **Diana's Animals Stickers**——Diana's Animals Stickers: The friendliest stickers you'll ever meet.（原价 $0.99，评分 5.0）
+1. **LiLiCal**——LiLiCal 是一款日历和提醒应用程序，可与系统应用程序配合使用...（原价 $0.99，评分 5.0）
+2. **ADHD Tool - Do This**——Do This 是一款待办事项应用程序，仅包含一项任务。（原价 $0.99，评分 5.0）
+3. **Mind Reader+ | RPS vs AI**——你比你想象的更容易预测。（原价 $0.99，评分 5.0）
 
 
 ## 付费应用限时免费（15 款）
 
 点链接进 App Store 点“获取”就行。领的时候只点“获取”，不要买任何内购。
 
-### 社交（1 款）
+### 效率工具（8 款）
 
-#### 1. Status Styler
-
-**原价**：$1.99，现在免费
-**评分**：★5.0（1 人评分）
-**设备**：iPhone / iPad / Apple Watch，最低 iOS 6.1
-**语言**：仅英文
-**简介**：50% OFF!!
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id481000392)
-
-### 效率工具（4 款）
-
-#### 1. Horizon: Calendar Highlights
+#### 1. ADHD Tool - Do This
 
 **原价**：$0.99，现在免费
-**评分**：★5.0（11 人评分）
-**设备**：iPhone / iPad / Apple Watch，最低 iOS 18.6
-**语言**：中文、英文、法文、德文、西班牙文等 6 种
-**简介**：你的 Apple 日历，按重要程度整理
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6761135453)
-
-#### 2. SimpleToDo - Todo & Calendar
-
-**原价**：$0.99，现在免费
-**评分**：★5.0（23 人评分）
+**评分**：★5.0（6 人评分）
 **设备**：iPhone / iPad / Apple Watch，最低 iOS 17.0
-**语言**：中文、英文、日文、德文、西班牙文等 6 种
-**简介**：「我的待办」，一款简洁高效的待办清单(Todo)、日程管理(GTD)应用
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1294530516)
-
-#### 3. Tracker Buttons Pro
-
-**原价**：$0.99，现在免费
-**评分**：★4.6（14 人评分）
-**设备**：iPhone / iPad / Apple Watch，最低 iOS 10.0
 **语言**：仅英文
-**简介**：Track Your Life Better With Tracker Buttons!
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id993411102)
+**简介**：Do This 是一款待办事项应用程序，仅包含一项任务。
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6563141268)
 
-#### 4. Colorblind Helper & Simulator
-
-**原价**：$0.99，现在免费
-**评分**：★4.5（10 人评分）
-**设备**：iPhone / iPad，最低 iOS 18.6
-**语言**：仅英文
-**简介**：For those who are colorblind, help yourself differentiate between raw…
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1455153058)
-
-### Stickers（1 款）
-
-#### 1. Diana's Animals Stickers
+#### 2. LiLiCal
 
 **原价**：$0.99，现在免费
-**评分**：★5.0（10 人评分）
-**设备**：iPhone / iPad，最低 iOS 15.0
-**语言**：仅英文
-**简介**：Diana's Animals Stickers: The friendliest stickers you'll ever meet.
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1170837414)
+**评分**：★5.0（5 人评分）
+**设备**：iPhone / iPad / Mac，最低 iOS 17.0
+**语言**：中文、英文、日文、韩文、法文等 7 种
+**简介**：LiLiCal 是一款日历和提醒应用程序，可与系统应用程序配合使用...
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6792025726)
 
-### 教育（1 款）
-
-#### 1. Numerology
+#### 3. Mind Reader+ | RPS vs AI
 
 **原价**：$0.99，现在免费
-**评分**：★4.7（11 人评分）
-**设备**：iPhone / iPad / Mac，最低 iOS 14.0
-**语言**：仅英文
-**简介**：Numerology is a refined and intuitive tool designed to explore the ene…
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1195301998)
-
-### 新闻（1 款）
-
-#### 1. Blue for Twitter
-
-**原价**：$0.99，现在免费
-**评分**：★4.7（80 人评分）
-**设备**：iPhone / iPad，最低 iOS 15.0
-**语言**：仅英文
-**简介**：Enjoy a healthier & more mindful Twitter/X experience: • No ads • No c…
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6472628197)
-
-### 音乐（2 款）
-
-#### 1. Christmas Radio UK
-
-**原价**：$0.99，现在免费
-**评分**：★4.5（886 人评分）
-**设备**：iPhone / iPad / Apple TV，最低 iOS 17.0
-**语言**：仅英文
-**简介**：CHRISTMAS RADIO UK – CHRISTMAS MUSIC ALL YEAR ROUND!
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1157967613)
-
-#### 2. Tapewind: Cassette Player
-
-**原价**：付费应用，现在免费
-**评分**：★4.0（1 人评分）
-**设备**：iPhone / iPad，最低 iOS 17.0
-**语言**：仅英文
-**简介**：Play your music on a real-feeling cassette deck.
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6819736826)
-
-### 摄影与录像（3 款）
-
-#### 1. Dual cameras
-
-**原价**：$0.99，现在免费
-**评分**：★4.4（227 人评分）
-**设备**：iPhone / iPad，最低 iOS 17.6
-**语言**：中文、英文、日文、韩文、法文等 11 种
-**简介**：Use both front and rear cameras to record and take pictures.
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6444750403)
-
-#### 2. Instant Video Background Music
-
-**原价**：$0.99，现在免费
-**评分**：★3.8（39 人评分）
-**设备**：iPhone / iPad，最低 iOS 17.0
-**简介**：Give your videos the soundtrack they deserve.
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id681042189)
-
-#### 3. Spatial Pro - AI Spatial | 3D
-
-**原价**：付费应用，现在免费
-**评分**：★4.9（19 人评分）
+**评分**：★5.0（3 人评分）
 **设备**：iPhone / iPad，最低 iOS 18.0
-**语言**：中文、英文、日文、韩文、法文等 12 种
-**简介**：***考虑到用户隐私，所有的处理均在设备上完成
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6761425441)
+**语言**：仅英文
+**简介**：你比你想象的更容易预测。
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1141892292)
+
+#### 4. Uploader for Mendeley
+
+**原价**：$0.99，现在免费
+**评分**：★5.0（2 人评分）
+**设备**：iPhone / iPad，最低 iOS 15.0
+**语言**：仅英文
+**简介**：直接将页面 URL 粘贴到 Uploader-for-Mendeley 搜索框中或...
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1606546011)
+
+#### 5. All Notes Aside
+
+**原价**：$0.99，现在免费
+**评分**：★5.0（1 人评分）
+**设备**：iPhone / iPad，最低 iOS 11.0
+**语言**：英文、西班牙文
+**简介**：使用 ANA（All Notes Aside），您可以即时记笔记并将其发送......
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1419991586)
+
+#### 6. CleanStreak Home
+
+**原价**：$0.99，现在免费
+**评分**：★5.0（1 人评分）
+**设备**：iPhone / iPad，最低 iOS 15.1
+**语言**：仅英文
+**简介**：周末打扫整​​个房子很糟糕。
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6757317342)
+
+#### 7. Uploader for Zotero
+
+**原价**：$0.99，现在免费
+**评分**：★4.2（5 人评分）
+**设备**：iPhone / iPad，最低 iOS 15.0
+**语言**：仅英文
+**简介**：直接将页面 URL 粘贴到 Uploader-for-Zotero 搜索框或...
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1566733750)
+
+#### 8. Simplistic Checklist
+
+**原价**：$0.99，现在免费
+**评分**：★4.0（1 人评分）
+**设备**：iPhone / iPad，最低 iOS 12.0
+**语言**：仅英文
+**简介**：简化且整洁。
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6457203636)
 
 ### 开发者工具（1 款）
 
-#### 1. Mockup Screenshot
+#### 1. ML Trainer: Make Training Data
 
 **原价**：$0.99，现在免费
-**评分**：★3.9（9 人评分）
+**评分**：★5.0（3 人评分）
+**设备**：iPhone / iPad，最低 iOS 14.0
+**语言**：仅英文
+**简介**：为图像分类机器学习创建原始训练数据......
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1573622903)
+
+### 健康健美（1 款）
+
+#### 1. 4-7-8 Breathe: Focus & Calm
+
+**原价**：$0.99，现在免费
+**评分**：★5.0（3 人评分）
+**设备**：iPhone / iPad，最低 iOS 15.1
+**语言**：仅英文
+**简介**：利用科学支持的呼吸技术在一分钟内找到平静……
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6749908822)
+
+### 工具（4 款）
+
+#### 1. Find PRO
+
+**原价**：$0.99，现在免费
+**评分**：★5.0（2 人评分）
+**设备**：iPhone / iPad / Mac，最低 iOS 14.0
+**语言**：仅英文
+**简介**：Find PRO – 高级互联网搜索 Find PRO 是一种快速、优雅的方式......
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id964800714)
+
+#### 2. Retro Mind Map-XMB Mind Mapping notepad memo notes
+
+**原价**：$0.99，现在免费
+**评分**：★5.0（2 人评分）
+**设备**：iPhone / iPad，最低 iOS 6.0
+**语言**：仅英文
+**简介**：这是一个很有趣的导图软件，软件采用类似于psp的XMB菜单方式来展现思维导图，主要采用游戏虚拟按键操作
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1247126338)
+
+#### 3. Where Am I - with Speech
+
+**原价**：$0.99，现在免费
+**评分**：★4.5（2 人评分）
+**设备**：iPhone / iPad，最低 iOS 17.6
+**语言**：仅英文
+**简介**：描述：- 该应用程序专为视觉障碍人士设计......
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1059458919)
+
+#### 4. Electric PRO
+
+**原价**：$0.99，现在免费
+**评分**：★4.2（5 人评分）
+**设备**：iPhone / iPad / Mac，最低 iOS 12.0
+**语言**：仅英文
+**简介**：电气装置的终极转换器，提供快速、准确的...
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id1014995444)
+
+### 体育（1 款）
+
+#### 1. Clay Smasher
+
+**原价**：$0.99，现在免费
+**评分**：★5.0（1 人评分）
 **设备**：iPhone / iPad / Mac，最低 iOS 15.0
 **语言**：仅英文
-**简介**：This app lets you make images for the app store Features: - You can ru…
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6443696943)
-
-### 工具（1 款）
-
-#### 1. AlbumBee - Photo Cleanup
-
-**原价**：付费应用，现在免费
-**评分**：★3.0（4 人评分）
-**设备**：iPhone / iPad，最低 iOS 17.0
-**语言**：中文、英文、日文、韩文、法文等 7 种
-**简介**：整理相册很辛苦,让小蜜蜂来帮你
-**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6774040750)
+**简介**：最后——一款尊重您的隐私和钱包的拍摄应用程序。
+**领取**：[在 App Store 打开](https://apps.apple.com/us/app/id6757287055)
 
 ## 终身内购 0 元兑换（8 个）
 
 这几个不是商店里直接降价到 0 元，而是开发者发的公开兑换码：点下面的兑换链接直接进 App Store 兑。每个兑换码一个 Apple 账号只能用一次，都是终身解锁、不是订阅，不会续费。
 
 **怎么领**：先装上对应的免费 App，再点该款下面的兑换链接，自动跳到 App Store 兑换页确认就行。不用绑卡，没有试用期。没有兑换链接的款，暂时只能先装 App，等开发者放出公开码。
+
+### 图形设计（1 个）
+
+#### 1. Edit Text In Photo - Forgeit
+
+**内购**：30 Credits
+**原价**：$19.99，兑换码 0 元领
+**评分**：★4.3（13 人评分）
+**设备**：iPhone / iPad，最低 iOS 17.0
+**语言**：中文、英文、日文、韩文、法文等 12 种
+**简介**：Forgeit 读取图片中的文字，你输入新内容，新文字就会以相同的位置和样式放回去，仿佛本来就在那里
+**兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6778315973&code=FORGEITBEST)
+**App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6778315973)
 
 ### 健康健美（2 个）
 
@@ -181,7 +187,7 @@
 **原价**：$24.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 26.0
 **语言**：仅英文
-**简介**：Most screen time tools count minutes.
+**简介**：大多数屏幕时间工具都会计算分钟数。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6834076393&code=MIKELOVESPUPPIES)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6834076393)
 
@@ -192,7 +198,7 @@
 **评分**：★4.9（7 人评分）
 **设备**：iPhone / iPad，最低 iOS 18.6
 **语言**：仅英文
-**简介**：Your cycle, logged deeply with details.
+**简介**：您的周期，详细记录下来。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6751436384&code=GETFREEPETALS)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6751436384)
 
@@ -204,7 +210,7 @@
 **原价**：$2.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 17.0
 **语言**：仅英文
-**简介**：A little water toy.
+**简介**：充满谜题的海洋。
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6822308678&code=FRIEND5)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6822308678)
 
@@ -216,11 +222,11 @@
 **原价**：$9.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 17.0
 **语言**：中文、英文
-**简介**：Learn useful Mandarin from English, or practise English with Mandarin…
+**简介**：从英语中学习有用的普通话，或者用普通话练习英语……
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6827587342&code=FRIEND5)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6827587342)
 
-### 效率工具（2 个）
+### 效率工具（1 个）
 
 #### 1. Floaty: Lock Screen Essentials
 
@@ -229,20 +235,9 @@
 **评分**：★5.0（5 人评分）
 **设备**：iPhone / iPad，最低 iOS 17.0
 **语言**：中文、英文
-**简介**：此刻所需，尽在浮现
+**简介**：取件码藏在短信里，待办写在备忘录里，车次座位要翻订单——需要的那一刻，总是找不到
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6825604929&code=GGFPL2K15)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6825604929)
-
-#### 2. Nota AI:Meeting Recorder Agent
-
-**内购**：LifeTime
-**原价**：$9.99，兑换码 0 元领
-**评分**：★5.0（15 人评分）
-**设备**：iPhone / iPad / Mac / Apple Watch，最低 iOS 26.0
-**语言**：中文、英文、日文、德文、西班牙文
-**简介**：Turn conversations into clear notes with Nota.
-**兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6781580778&code=NOTAAIRECORDEAGENT)
-**App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6781580778)
 
 ### 工具（1 个）
 
@@ -252,7 +247,7 @@
 **原价**：$6.99，兑换码 0 元领
 **设备**：iPhone / iPad，最低 iOS 17.0
 **语言**：中文、英文
-**简介**：把重要的日子留给家人
+**简介**：FamilyDay 帮你记录生日、结婚纪念日、相识、成长与生活中的重要时刻
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6825604711&code=FAMILYDAY500REDNOTE)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6825604711)
 
@@ -265,7 +260,7 @@
 **评分**：★5.0（2 人评分）
 **设备**：iPhone / iPad，最低 iOS 18.0
 **语言**：仅英文
-**简介**：Count down to birthdays, trips, anniversaries and the days you look fo…
+**简介**：倒计时生日、旅行、周年纪念日和您期待的日子……
 **兑换链接**：[点这里兑换](https://apps.apple.com/redeem?ctx=offercodes&id=6831184506&code=FRIEND5)
 **App 链接**：[在 App Store 打开](https://apps.apple.com/us/app/id6831184506)
 
