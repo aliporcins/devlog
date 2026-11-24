@@ -31,9 +31,9 @@ Usage:
   deploys via wrangler (needs CLOUDFLARE_API_TOKEN env), then posts to
   Telegram via tg_post.py.
 - App intros are Chinese: the China App Store description is preferred;
-  otherwise the English first sentence is machine-translated (free Google
-  Translate web endpoint, no API key). The raw iTunes record (English
-  description) in apps.json is never modified.
+  otherwise the English first sentence is machine-translated (three-level
+  chain: Google gtx -> dict-chrome-ex -> MyMemory, all free, no API key).
+  The raw iTunes record (English description) in apps.json is never modified.
 - Also writes automation/data/<date>/wechat.md (a copy-paste-ready WeChat
   Official Account article), automation/data/<date>/wechat.html (the same
   article as standalone HTML with inline styles, for paste into the WeChat
@@ -290,53 +290,243 @@ def group_by_category(apps):
     return [(c, groups[c]) for c in order]
 
 
+_PROMO_WORDS = ("limited time", "get it now", "download now",
+                 "celebrat", "free for a limited")
+_PROMO_PCT_OFF = re.compile(r"^\s*\d+\s*%\s*off\b", re.I)
+_PROMO_FREE_ALONE = re.compile(r"^free[!.\s]*$", re.I)
+_PROMO_SALE_WORD = re.compile(r"\bsale\b", re.I)
+
+
+def _is_promo_sentence(s):
+    """True when a description fragment is a promo slogan rather than a
+    description of what the app does (e.g. "50% OFF!!", "LIMITED TIME!",
+    "celebrating the New Universal Build!", an all-caps tagline).
+    First-sentence picking skips leading fragments like these so the
+    intro is the first functional sentence. Only the wording is
+    judged — a normal descriptive sentence is never skipped."""
+    t = s.strip()
+    if not t:
+        return True
+    if _PROMO_PCT_OFF.match(t) or _PROMO_FREE_ALONE.match(t):
+        return True
+    low = t.lower()
+    if _PROMO_SALE_WORD.search(low):
+        return True
+    if any(w in low for w in _PROMO_WORDS):
+        return True
+    # all-caps short slogan ending with '!' — real descriptions are
+    # almost never written entirely in capitals.
+    letters = [c for c in t if c.isalpha()]
+    if (letters and len(t) <= 60 and t.endswith("!")
+            and all(c.isupper() for c in letters)):
+        return True
+    return False
+
+
 def first_sentence(text, max_len=70):
-    """First sentence of a description, capped at ~max_len chars.
+    """First functional sentence of a description, capped at ~max_len chars.
 
     Splits on Chinese terminators (。！？) and on English sentence ends
     (. ! ? followed by a space), so an English description yields a real
-    first sentence instead of an arbitrary 70-char cut.
+    first sentence instead of an arbitrary 70-char cut. Leading promo
+    slogans are skipped (see _is_promo_sentence), and a short stub
+    fragment ("for iPad and iPhone!", 19 chars) is passed over in favour
+    of the first functional sentence of at least 20 chars; if every
+    fragment is a slogan or a stub, the first usable fragment is kept
+    rather than returning nothing.
     """
     if not text:
         return ""
     text = re.sub(r"\s+", " ", text).strip()
     parts = re.split(r"[。！？\n]|(?<=[.!?])\s+", text)
+
+    def cap(p):
+        if len(p) > max_len:
+            p = p[:max_len].rstrip() + "…"
+        return p
+
+    first = ""      # first non-promo fragment >= 8 chars
+    first_any = ""  # first fragment >= 8 chars, promo or not
     for p in parts:
         p = p.strip()
-        if len(p) >= 8:
-            if len(p) > max_len:
-                p = p[:max_len].rstrip() + "…"
-            return p
+        if len(p) < 8:
+            continue
+        if not first_any:
+            first_any = p
+        if _is_promo_sentence(p):
+            continue
+        if not first:
+            first = p
+        if len(p) >= 20:
+            return cap(p)
+    if first:
+        return cap(first)
+    if first_any:
+        return cap(first_any)
     return text[:max_len]
 
 
+# Translation chain (tried in order; each level's result must contain
+# Chinese and differ from the source, otherwise it counts as failed):
+#   1. Google Translate web endpoint (gtx) — backoff retries.
+#   2. Google dict-chrome-ex endpoint — 2 retries.
+#   3. MyMemory free API — skipped for the rest of the run once its
+#      daily quota is exhausted (HTTP 429 or a quota warning in the
+#      response).
+# Deliberately NOT tried (verified dead 2026-11-24): Lingva (lingva.ml,
+# "Translation provider temporarily unavailable"), LibreTranslate.com
+# (needs an API key now), translate.terraprint.co / libretranslate.de
+# (empty responses), Baidu transapi (empty response). Do not re-add
+# them without re-verifying they work.
+_TRANSLATE_BACKOFF = (5, 15, 45)   # gtx retries
+_DICT_BACKOFF = (2, 5)             # dict-chrome-ex retries
+_GOOGLE_DOWN = False    # gtx failed with 429: skip it, rest of the run
+_MYMEMORY_DOWN = False  # MyMemory quota exhausted: skip it, rest of run
+
+
+def _valid_zh(out, src):
+    """A usable translation: non-empty, Chinese, different from source."""
+    return bool(out) and out != src and any(
+        "\u4e00" <= ch <= "\u9fff" for ch in out)
+
+
+def _translate_attempts(fn, text, waits, label):
+    """Call fn(text) with backoff retries. Returns (result, rate_limited):
+    rate_limited is True when an attempt got HTTP 429. Sleeps 0.5s
+    before every attempt so calls are staggered — on 2026-11-24 all 17
+    translation failures landed in the same second, tripping the
+    per-minute limit."""
+    rate_limited = False
+    for attempt, wait in enumerate((0,) + tuple(waits)):
+        if attempt:
+            print(f"  [translate] {label} retry {attempt} after {wait}s")
+            time.sleep(wait)
+        time.sleep(0.5)
+        try:
+            out = fn(text)
+        except urllib.error.HTTPError as e:
+            print(f"  [translate] {label} failed: {e}")
+            if e.code == 429:
+                rate_limited = True
+            out = ""
+        except Exception as e:
+            print(f"  [translate] {label} failed: {e}")
+            out = ""
+        if out:
+            return (out, rate_limited)
+    return ("", rate_limited)
+
+
+def _google_translate(text):
+    """One attempt against the free Google Translate web endpoint
+    (translate.googleapis.com, client=gtx). No API key, stdlib only.
+    Returns translated text ('' when the response has none); raises on
+    HTTP/network failure so the caller can retry."""
+    q = urllib.parse.quote(text)
+    url = ("https://translate.googleapis.com/translate_a/single"
+           f"?client=gtx&sl=en&tl=zh-CN&dt=t&q={q}")
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        d = json.loads(r.read().decode())
+    return "".join(seg[0] for seg in d[0] if seg and seg[0]).strip()
+
+
+def _dict_chrome_translate(text):
+    """One attempt against Google's dict-chrome-ex endpoint
+    (clients5.google.com). Response is JSON like ["translated text"] —
+    a flat list whose first element is the translation (an older shape
+    nests it one level deeper, so both are handled). Returns translated
+    text ('' when the response has none); raises on HTTP/network
+    failure so the caller can retry."""
+    q = urllib.parse.quote(text)
+    url = ("https://clients5.google.com/translate_a/t"
+           f"?client=dict-chrome-ex&sl=en&tl=zh-CN&q={q}")
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        d = json.loads(r.read().decode())
+    if isinstance(d, list) and d:
+        first = d[0]
+        if isinstance(first, list) and first:
+            return (first[0] or "").strip()
+        if isinstance(first, str):
+            return first.strip()
+    return ""
+
+
+def _mymemory_translate(text):
+    """One attempt against the MyMemory free API (no key). Returns
+    (translated_text, quota_exhausted). translated_text is '' when the
+    response carries no usable translation; quota_exhausted is True
+    when the daily anonymous quota is used up (a 429 responseStatus or
+    a quota warning inside translatedText — an HTTP 429 is raised as an
+    exception instead and handled by the caller)."""
+    q = urllib.parse.quote(text)
+    url = ("https://api.mymemory.translated.net/get"
+           f"?q={q}&langpair=en|zh-CN")
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        d = json.loads(r.read().decode())
+    status = str(d.get("responseStatus"))
+    out = (d.get("responseData") or {}).get("translatedText", "") or ""
+    out = out.strip()
+    if status == "429" or "MYMEMORY WARNING" in out:
+        return ("", True)
+    if status != "200" or not out or "QUERY LENGTH LIMIT" in out:
+        return ("", False)
+    return (out, False)
+
+
 def translate_en_to_zh(text):
-    """Translate a short English sentence to Chinese via the free Google
-    Translate web endpoint (translate.googleapis.com, client=gtx).
-    No API key, stdlib only. Returns '' on any failure — the caller
-    decides the fallback. A short sleep keeps us polite."""
+    """Translate a short English sentence to Chinese via the three-level
+    chain (Google gtx -> dict-chrome-ex -> MyMemory; each level must
+    yield Chinese different from the source). Returns (text, provider)
+    where provider is "google", "dict-chrome-ex", "mymemory" or ""
+    when every level failed — the caller decides the fallback."""
+    global _GOOGLE_DOWN, _MYMEMORY_DOWN
     if not text:
-        return ""
-    try:
-        q = urllib.parse.quote(text)
-        url = ("https://translate.googleapis.com/translate_a/single"
-               f"?client=gtx&sl=en&tl=zh-CN&dt=t&q={q}")
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            d = json.loads(r.read().decode())
-        out = "".join(seg[0] for seg in d[0] if seg and seg[0]).strip()
-        time.sleep(0.2)
-        return out
-    except Exception as e:
-        print(f"  [translate] failed: {e}")
-        return ""
+        return ("", "")
+    if not _GOOGLE_DOWN:
+        out, limited = _translate_attempts(
+            _google_translate, text, _TRANSLATE_BACKOFF, "google")
+        if _valid_zh(out, text):
+            return (out, "google")
+        if limited:
+            _GOOGLE_DOWN = True
+    else:
+        print("  [translate] google rate-limited earlier, skipping gtx")
+    out, _ = _translate_attempts(
+        _dict_chrome_translate, text, _DICT_BACKOFF, "dict-chrome-ex")
+    if _valid_zh(out, text):
+        return (out, "dict-chrome-ex")
+    if not _MYMEMORY_DOWN:
+        time.sleep(0.5)
+        try:
+            out, quota = _mymemory_translate(text)
+        except urllib.error.HTTPError as e:
+            quota = (e.code == 429)
+            if not quota:
+                print(f"  [translate] fallback failed: {e}")
+            out = ""
+        except Exception as e:
+            print(f"  [translate] fallback failed: {e}")
+            out, quota = "", False
+        if quota:
+            _MYMEMORY_DOWN = True
+            print("  [translate] MyMemory quota exhausted; "
+                  "skipping MyMemory for the rest of this run")
+        elif _valid_zh(out, text):
+            return (out, "mymemory")
+    else:
+        print("  [translate] MyMemory quota exhausted earlier, skipping")
+    return ("", "")
 
 
 def chinese_intro(app_id, us_record):
     """One-line Chinese intro.
 
     1. China App Store description, first sentence (when it is Chinese).
-    2. Otherwise machine-translate the US description's first sentence.
+    2. Otherwise machine-translate the US description's first sentence
+       (three-level chain: Google gtx -> dict-chrome-ex -> MyMemory).
     3. If translation is unavailable, keep the English first sentence so
        the post still says what the app does (logged as a warning).
     4. No description at all: a generic Chinese line from name + genre.
@@ -346,12 +536,14 @@ def chinese_intro(app_id, us_record):
     if cn and cn.get("description"):
         s = first_sentence(cn["description"])
         if s and any("\u4e00" <= ch <= "\u9fff" for ch in s):
+            print(f"  [intro] {app_id}: via cn-official")
             return s
     if us_record.get("description"):
         s = first_sentence(us_record["description"])
         if s:
-            zh = translate_en_to_zh(s)
+            zh, provider = translate_en_to_zh(s)
             if zh and any("\u4e00" <= ch <= "\u9fff" for ch in zh):
+                print(f"  [intro] {app_id}: via {provider}")
                 return zh
             print(f"  [intro] {app_id}: translation unavailable, "
                   f"keeping English intro")
@@ -453,14 +645,22 @@ def make_cover(icon_paths, out_path, date_str, n_apps):
     d.text((60, 60), "今日限免", font=font_big, fill=(245, 245, 245))
     d.text((60, 150), f"{date_str} · {n_apps} 款完全免费",
            font=font_small, fill=(200, 200, 210))
-    x = 60
+    # Featured icons, centered: 3 x 240px with 40px gaps = 800px wide,
+    # starting at x=200 on the 1200px canvas, so the right side is no
+    # longer empty black (the old layout pasted 220px icons from x=60
+    # and stopped at x=800, leaving 400px blank).
+    loaded = []
     for p in icon_paths[:3]:
         try:
-            icon = Image.open(p).convert("RGB").resize((220, 220))
+            loaded.append(Image.open(p).convert("RGB").resize((240, 240)))
         except Exception:
             continue
-        img.paste(icon, (x, 300))
-        x += 260
+    if loaded:
+        total_w = len(loaded) * 240 + (len(loaded) - 1) * 40
+        x = (W - total_w) // 2
+        for icon in loaded:
+            img.paste(icon, (x, 300))
+            x += 280
     img.save(out_path, "JPEG", quality=88)
     print(f"  cover -> {out_path}")
 
@@ -1023,6 +1223,20 @@ def save_posted(posted):
         json.dump({str(k): v for k, v in posted.items()}, f, indent=1)
 
 
+def pick_featured(paid):
+    """Top 3 paid apps for the "今日极力推荐" text and the cover icons.
+
+    Chinese-first: apps with a ZH localization (languageCodesISO2A
+    contains 'ZH' — checked against the whole list, ZH sometimes
+    repeats or sits late in it) rank ahead of English-only apps; each
+    group is ordered by rating desc. When fewer than 3 apps have ZH,
+    the highest-rated English-only apps fill the remainder."""
+    return sorted(
+        paid,
+        key=lambda a: (1 if a.get("has_zh") else 0, a["rating"] or 0),
+        reverse=True)[:3]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None)
@@ -1113,6 +1327,7 @@ def main():
             "size_bytes": rec.get("fileSizeBytes"),
             "genre": rec.get("primaryGenreName", ""),
             "category": category_zh(rec.get("primaryGenreName", "")),
+            "has_zh": "ZH" in (rec.get("languageCodesISO2A") or []),
             "intro": chinese_intro(app_id, rec),
             "icon_url": rec.get("artworkUrl512", ""),
             "shots": (rec.get("screenshotUrls") or [])[:4],
@@ -1290,10 +1505,10 @@ def main():
         except Exception as e:
             print(f"  banner failed for {a['id']}: {e}")
 
-    # 5. featured + cover
-    featured = sorted(
-        paid, key=lambda a: ((a["price_usd"] or 0), a["rating"]),
-        reverse=True)[:3]
+    # 5. featured + cover (featured is Chinese-first: see pick_featured;
+    # the same list drives both the recommendation text and the cover
+    # icons, so one change covers both).
+    featured = pick_featured(paid)
     make_cover([os.path.join(asset_dir, f"{a['id']}.jpg") for a in featured],
                os.path.join(asset_dir, "cover.jpg"), date, len(paid))
 
