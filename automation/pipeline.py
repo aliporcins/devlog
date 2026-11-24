@@ -735,7 +735,7 @@ def _post_paid_app_lines(a, i, asset_dir, ymd, level):
     if size:
         lines.append(f"- **大小**：{size}")
     lines += [
-        f"- **干什么的**：{a['intro']}",
+        f"- **简介**：{a['intro']}",
         f"- **领取**：[在 App Store 打开](https://apps.apple.com/us/app/id{a['id']})",
         "",
         "!carousel",
@@ -770,7 +770,7 @@ def _post_iap_app_lines(a, i, asset_dir, ymd, level):
     size = format_size(a.get("size_bytes"))
     if size:
         section_lines.append(f"- **大小**：{size}")
-    section_lines.append(f"- **干什么的**：{a['intro']}")
+    section_lines.append(f"- **简介**：{a['intro']}")
     if a.get("redeem_url"):
         section_lines.append(
             f"- **兑换链接**：[点这里兑换]({a['redeem_url']})")
