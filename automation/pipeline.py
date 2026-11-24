@@ -611,12 +611,20 @@ def _load_cover_font(candidates, size):
     return None
 
 
-def make_cover(icon_paths, out_path, date_str, n_apps):
+def make_cover(icon_paths, out_path, date_str, n_apps, n_iaps=0):
     """1200x630 dark cover: featured icons + title text.
 
     The title and date lines are Chinese, so they must be drawn with a
     CJK font (Noto Sans CJK SC). DejaVu has no CJK glyphs and renders
     them as boxes — the 2026-11-23 cover was all boxes for this reason.
+
+    Icons come from pick_cover_icons: the featured apps when there
+    are any, else the day's Chinese apps (at most 4). When no icon
+    loads at all, the lower 70% of the canvas must not be left blank —
+    in Telegram dark mode blank dark space reads as a broken image
+    (2026-11-24: 0 featured, the blank cover looked broken). Instead
+    a large translucent gold "免" watermark is drawn in the icon band
+    with a stats line at the bottom.
     """
     from PIL import Image, ImageDraw, ImageFont
     W, H = 1200, 630
@@ -649,8 +657,7 @@ def make_cover(icon_paths, out_path, date_str, n_apps):
     # (the verified layout: 3 x 240 + 2 x 40 gaps = 800px wide,
     # starting at x=200, so the right side is no longer empty black).
     # 4 icons shrink to 220px: 4 x 220 + 3 x 40 gaps = 1000px wide,
-    # still centered on the 1200px canvas. No icons (empty featured)
-    # leaves just the title + date lines, via the `if loaded:` guard.
+    # still centered on the 1200px canvas.
     icon_size = 220 if len(icon_paths) >= 4 else 240
     loaded = []
     for p in icon_paths[:4]:
@@ -664,6 +671,27 @@ def make_cover(icon_paths, out_path, date_str, n_apps):
         for icon in loaded:
             img.paste(icon, (x, 300))
             x += icon_size + 40
+    else:
+        # Decorative fallback (no icons at all): a large translucent
+        # gold "免" watermark centred in the icon band, plus a stats
+        # line at the bottom. The cover must never be 70% empty dark
+        # space (2026-11-24: 0 featured, the blank cover looked broken
+        # in the channel's dark theme).
+        wm_font = _load_cover_font(CJK_FONT_BOLD, 260)
+        if wm_font is not None:
+            overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            od = ImageDraw.Draw(overlay)
+            bbox = od.textbbox((0, 0), "免", font=wm_font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            od.text(((W - tw) // 2 - bbox[0], 400 - th // 2 - bbox[1]),
+                    "免", font=wm_font, fill=(212, 175, 55, 64))
+            img = Image.alpha_composite(img.convert("RGBA"),
+                                        overlay).convert("RGB")
+            d = ImageDraw.Draw(img)
+        stats = f"今日 {n_apps} 款免费 · {n_iaps} 个内购"
+        sb = d.textbbox((0, 0), stats, font=font_small)
+        d.text(((W - (sb[2] - sb[0])) // 2 - sb[0], 570),
+               stats, font=font_small, fill=(200, 200, 210))
     img.save(out_path, "JPEG", quality=88)
     print(f"  cover -> {out_path}")
 
@@ -1245,6 +1273,31 @@ def pick_featured(paid):
         if a.get("has_zh")][:4]
 
 
+def pick_cover_icons(paid, iaps, languages, asset_dir):
+    """Icon files for the cover, in priority order.
+
+    1. featured (Chinese-only paid, at most 4) — the normal case.
+    2. When featured is empty, the top at most 4 Chinese apps of the
+       day (paid + IAPs with a ZH localization, by rating desc).
+    3. [] when the day has no Chinese app at all — make_cover then
+       draws the decorative fallback instead of blank space.
+    English-only apps never appear on the cover."""
+    featured = pick_featured(paid)
+    if featured:
+        return [os.path.join(asset_dir, f"{a['id']}.jpg") for a in featured]
+    zh = []
+    for a in paid:
+        if a.get("has_zh"):
+            zh.append((a.get("rating") or 0,
+                       os.path.join(asset_dir, f"{a['id']}.jpg")))
+    for a in iaps:
+        if "ZH" in (languages.get(str(a["id"])) or []):
+            zh.append((a.get("rating") or 0,
+                       os.path.join(asset_dir, "iap", f"{a['id']}.jpg")))
+    zh.sort(key=lambda t: t[0], reverse=True)
+    return [p for _, p in zh[:4]]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None)
@@ -1516,9 +1569,14 @@ def main():
     # 5. featured + cover (featured is Chinese-only, at most 4: see
     # pick_featured; the same list drives both the recommendation text
     # and the cover icons, so one change covers both).
+    # Cover icons: featured when there are any; when featured is empty
+    # the day's Chinese apps fill the cover (pick_cover_icons); when
+    # the day has no Chinese app at all make_cover draws a decorative
+    # fallback — the cover is never 70% blank dark space.
     featured = pick_featured(paid)
-    make_cover([os.path.join(asset_dir, f"{a['id']}.jpg") for a in featured],
-               os.path.join(asset_dir, "cover.jpg"), date, len(paid))
+    make_cover(pick_cover_icons(paid, iaps, languages, asset_dir),
+               os.path.join(asset_dir, "cover.jpg"), date, len(paid),
+               n_iaps=len(iaps))
 
     # 6. write post + data files
     write_post(date, paid, iaps, featured, asset_dir)
