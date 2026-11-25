@@ -1,0 +1,34 @@
+name: ur.io keep-alive
+
+# Keep the free ur.io proxy alive (an unused proxy is recycled after 30 days).
+# Every ~14 days, run a tiny request through the proxy so it counts as used.
+# The proxy URL lives in the repo Secret URIO_PROXY_URL (never in this file);
+# GitHub masks secrets in logs. A 200 through the proxy = alive.
+# Verified 2026-11-25: DE proxy, ~30 GiB/day free quota, HTTPS proxy only.
+
+on:
+  schedule:
+    # 1st and 15th of each month, 00:00 UTC (~14 days apart)
+    - cron: '0 0 1,15 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Small request through ur.io proxy
+        env:
+          PROXY_URL: ${{ secrets.URIO_PROXY_URL }}
+        run: |
+          code=""
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 -x "$PROXY_URL" "https://api.ipify.org" || echo "000")
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "ur.io proxy is alive (request through proxy returned 200)."
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "ur.io proxy did not return 200 after 3 attempts (last: $code)" >&2
+          exit 1
