@@ -1,0 +1,28 @@
+name: Cloady keep-alive
+
+# Keep the Cloady free Xray node awake (it auto-pauses after 7 days without traffic).
+# A plain GET to the public domain counts as traffic; a live app answers the
+# Xray HTTP 404 (direct visit verified 2026-11-25). No secrets needed: the
+# domain is public and no credentials are in the request.
+
+on:
+  schedule:
+    # 00:00 and 12:00 UTC = 08:00 and 20:00 CST, every day
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Cloady Xray node
+        run: |
+          url="https://xray-scq2u3rr-workspace-684h34.cloady.io/"
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$url")
+          echo "HTTP status: $code"
+          if [ "$code" = "404" ]; then
+            echo "Cloady node is awake (Xray 404)."
+          else
+            echo "Cloady ping unexpected status $code (expected 404 from live Xray)" >&2
+            exit 1
+          fi
