@@ -1,8 +1,9 @@
 name: QwenPaw keep-alive
 
 # Keep the AgentScope free QwenPaw instance awake (it sleeps after 48h idle).
-# Runs alongside the Muse cron keep-alive; both ping the same public URL.
-# No secrets needed: the instance URL is public and a plain GET counts as activity.
+# The instance's access link requires a platform login (anonymous GET is 401),
+# so this workflow logs in with Playwright and opens the app like a user.
+# Secret required: AGENTSCOPE_PASSWORD (aliporcins@gmail.com platform password).
 
 on:
   schedule:
@@ -11,17 +12,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  ping:
+  keepalive:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Ping QwenPaw instance
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright
         run: |
-          url="https://01a20de6-a388-7cc3-9596-ef0ef7ac0088.qwenpaw.platform.agentscope.io/"
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$url")
-          echo "HTTP status: $code"
-          if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
-            echo "QwenPaw is awake."
-          else
-            echo "QwenPaw ping failed with status $code" >&2
-            exit 1
-          fi
+          npm i playwright
+          npx playwright install --with-deps chromium
+      - name: Visit QwenPaw (logged in)
+        env:
+          AGENTSCOPE_PASSWORD: ${{ secrets.AGENTSCOPE_PASSWORD }}
+        run: node .github/workflows/qwenpaw-keepalive.mjs
