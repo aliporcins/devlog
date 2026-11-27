@@ -309,14 +309,16 @@ def esc(s):
 
 
 def rating_line(a):
-    """⭐ 评分：4.6 — score only, no rating count. The blog stores
-    rating as '4.6 (28,711)' (parsed from '★4.6 (28,711)'). No rating,
-    or a 0.0 rating, returns '' so the line is omitted — never
-    invented."""
+    """⭐ 评分：4.6（28,711 条评价）. The blog writes the rating with
+    full-width parentheses ('★4.6（28,711）'), so the parser must
+    accept both ASCII and full-width parens — the old ASCII-only
+    regex never matched and every Telegram post lost its rating
+    (2026-11-27: 14/14 paid + 5/5 rated IAPs). No rating, or a 0.0
+    rating, returns '' so the line is omitted — never invented."""
     r = str(a.get("rating") or "").strip()
     if not r:
         return ""
-    m = re.match(r"([\d.]+)\s*\(([\d,]+)\)", r)
+    m = re.match(r"([\d.]+)\s*[\(（]([\d,]+)[\)）]", r)
     if not m:
         return ""
     val, count = m.group(1), m.group(2)
@@ -325,7 +327,7 @@ def rating_line(a):
             return ""
     except ValueError:
         return ""
-    return f"⭐ 评分：{val}"
+    return f"⭐ 评分：{val}（{count} 条评价）"
 
 
 def platform_line(a):
