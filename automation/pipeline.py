@@ -1633,11 +1633,23 @@ def main():
         languages[str(app_id)] = rec.get("languageCodesISO2A", [])
         apps_data[str(app_id)] = rec
         time.sleep(0.3)
-        if len(paid) >= 15:
+        # Language preference (2026-11-27): Chinese apps first. Keep
+        # verifying past 15 until 15 Chinese are in hand (or 30
+        # verified), so an English-heavy day still surfaces the
+        # Chinese apps instead of stopping at the first 15 in scrape
+        # order. English apps fill the remainder below — never
+        # Chinese-only.
+        n_zh = sum(1 for a in paid if a["has_zh"])
+        if n_zh >= 15 or len(paid) >= 30:
             break
     paid.sort(key=lambda a: ((a["price_usd"] or 0), a["rating"],
                              a["rating_count"]), reverse=True)
-    print(f"paid apps kept: {len(paid)}")
+    # Chinese first (stable partition keeps the price/rating/count
+    # order inside each group), English fills up to the daily 15.
+    paid = ([a for a in paid if a["has_zh"]]
+            + [a for a in paid if not a["has_zh"]])[:15]
+    print(f"paid apps kept: {len(paid)} "
+          f"(zh={sum(1 for a in paid if a['has_zh'])})")
 
     # 2b. AppRaven cross-check — price-history verification. For every
     # kept paid app that AppRaven tracks, its price history is checked:
@@ -1745,6 +1757,7 @@ def main():
             "size_bytes": rec.get("fileSizeBytes"),
             "genre": rec.get("primaryGenreName", ""),
             "category": category_zh(rec.get("primaryGenreName", "")),
+            "has_zh": "ZH" in (rec.get("languageCodesISO2A") or []),
             "intro": chinese_intro(app_id, rec),
             "icon_url": rec.get("artworkUrl512", ""),
             "shots": (rec.get("screenshotUrls") or [])[:4],
@@ -1752,9 +1765,17 @@ def main():
         languages[str(app_id)] = rec.get("languageCodesISO2A", [])
         apps_data[str(app_id)] = rec
         time.sleep(0.3)
-        if len(iaps) >= 8:
+        # Language preference (2026-11-27): same as paid — verify
+        # past 8 until 8 Chinese are in hand (or 16 verified).
+        n_zh = sum(1 for a in iaps if a["has_zh"])
+        if n_zh >= 8 or len(iaps) >= 16:
             break
-    print(f"iap promos kept: {len(iaps)}")
+    # Chinese first (stable partition, original order kept inside
+    # each group), English fills up to the daily 8.
+    iaps = ([a for a in iaps if a["has_zh"]]
+            + [a for a in iaps if not a["has_zh"]])[:8]
+    print(f"iap promos kept: {len(iaps)} "
+          f"(zh={sum(1 for a in iaps if a['has_zh'])})")
 
     if not paid and not iaps:
         print("nothing to post today")
